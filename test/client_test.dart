@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:logger/logger.dart';
 import 'package:test/test.dart';
+import 'package:time/time.dart';
 import 'package:maxwell_client/maxwell_client.dart';
 
 final logger = Logger();
@@ -16,7 +17,7 @@ void main() {
     for (var i = 0; i < 10000; i++) {
       var reply = await client.request(Action(type: "get_candles"));
       logger.i('received reply: $reply');
-      await Future.delayed(Duration(seconds: 1));
+      await Future.delayed(1.seconds);
     }
     var server = await HttpServer.bind(InternetAddress.loopbackIPv4, 9999);
     print("Serving at ${server.address}:${server.port}");

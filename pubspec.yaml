@@ -1,0 +1,24 @@
+name: maxwell_client
+version: 0.1.0
+description: A maxwell client for dart.
+homepage: https://github.com/maxwell-dev/maxwell-client-dart.git
+
+environment:
+  sdk: ">=2.1.0 <3.0.0"
+
+dependencies:
+  logger: ^0.8.0
+  time: ^1.2.0
+  async: ^2.4.0
+  meta: ^1.1.8
+  web_socket_channel2:
+    git:
+      url: https://github.com/xuchaoqian/web_socket_channel.git
+      ref: master
+  maxwell_protocol:
+    git:
+      url: https://github.com/maxwell-dev/maxwell-protocol-dart.git
+      ref: master
+
+dev_dependencies:
+  test: ^1.3.4

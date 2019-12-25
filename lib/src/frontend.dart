@@ -14,7 +14,7 @@ final int _QUEUE_CAPACITY = 128;
 
 class Action {
   String type;
-  String value;
+  dynamic value;
   Action({@required this.type, this.value = ''});
 }
 

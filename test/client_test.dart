@@ -9,7 +9,7 @@ final logger = Logger();
 
 void main() {
   test("all", () async {
-    var client = Client(["localhost:8081"]);
+    var client = Client(["localhost:8081"], Options()..logLevel = Level.error);
     client.subscribe("topic_3", 0, (_) {
       var msgs = client.consume("topic_3");
       logger.i('received msgs: $msgs');

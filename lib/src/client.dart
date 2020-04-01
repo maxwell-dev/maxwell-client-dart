@@ -1,10 +1,13 @@
+import 'package:logger/logger.dart';
 import 'package:maxwell_client/maxwell_client.dart';
 
 class Client {
   Frontend _frontend;
 
   Client(endpoints, [options]) {
-    this._frontend = Frontend(endpoints, options == null ? Options() : options);
+    var finalOptions = options == null ? Options() : options;
+    Logger.level = finalOptions.logLevel;
+    this._frontend = Frontend(endpoints, finalOptions);
   }
 
   void subscribe(String topic, int offset, OnMsg callback) {

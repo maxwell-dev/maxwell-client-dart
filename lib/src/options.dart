@@ -1,3 +1,5 @@
+import 'package:logger/logger.dart' show Level;
+
 class Options {
   Duration reconnectDelay;
   Duration heartbeatInterval;
@@ -7,6 +9,7 @@ class Options {
   int queueCapacity;
   bool masterEnabled;
   bool sslEnabled;
+  Level logLevel;
 
   Options(
       {this.reconnectDelay = const Duration(milliseconds: 3000),
@@ -16,5 +19,6 @@ class Options {
       this.getLimit = 64,
       this.queueCapacity = 512,
       this.masterEnabled = true,
-      this.sslEnabled = false});
+      this.sslEnabled = false,
+      this.logLevel = Level.info});
 }

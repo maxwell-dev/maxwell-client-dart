@@ -65,6 +65,8 @@ mixin Listenable {
           this.addListener(tuple.item2, tuple.item3);
         } else if (tuple.item1 == 0) {
           this.removeListener(tuple.item2, tuple.item3);
+        } else {
+          // Should never goes here.
         }
       });
     }

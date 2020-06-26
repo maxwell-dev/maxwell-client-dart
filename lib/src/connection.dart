@@ -119,12 +119,15 @@ class Connection with Listenable {
 
   void onDone() {
     logger.i('Disconnected: endpoint: ${this._endpoint}');
-    this._isReady = false;
-    this._stopSendHeartbeat();
-    this._closeChannel();
-    this.notify(Event.ON_DISCONNECTED);
-    if (this._shouldRun) {
-      this._reconnect();
+    try {
+      this._isReady = false;
+      this._stopSendHeartbeat();
+      this._closeChannel();
+      this.notify(Event.ON_DISCONNECTED);
+    } finally {
+      if (this._shouldRun) {
+        this._reconnect();
+      }
     }
   }
 

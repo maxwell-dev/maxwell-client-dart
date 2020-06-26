@@ -175,7 +175,7 @@ class Frontend {
       return;
     }
     if (this._connection == null) {
-      logger.e('Lost connection, will pull again...');
+      logger.d('Lost connection, will pull again...');
       Timer(1.seconds, () => this._newPullTask(topic, offset));
       return;
     }

@@ -110,15 +110,17 @@ class Frontend {
   }
 
   void _onConnectedToFrontend([_]) {
-    this._completer.complete();
+    if (!this._completer.isCompleted) {
+      this._completer.complete();
+    }
     this._renewAllPullTasks();
   }
 
   void _onDisconnectedFromFrontend([_]) {
     if (!this._completer.isCompleted) {
       this._completer.complete();
-      this._completer = Completer();
     }
+    this._completer = Completer();
     this._cancelAllPullTasks();
     if (this._shouldRun) {
       this._disconnectFromFrontend();

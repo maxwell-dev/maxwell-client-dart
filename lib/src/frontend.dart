@@ -118,7 +118,8 @@ class Frontend {
 
   void _onDisconnectedFromFrontend([_]) {
     if (!this._completer.isCompleted) {
-      this._completer.complete();
+      this._completer.completeError(
+          "Lost connection to endpoint: ${this._endpoints[this._endpoint_index]}");
     }
     this._completer = Completer();
     this._cancelAllPullTasks();

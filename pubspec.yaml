@@ -11,6 +11,7 @@ dependencies:
   time: ^1.2.0
   async: ^2.4.0
   meta: ^1.1.8
+  tuple: ^1.0.3
   web_socket_channel2:
     git:
       url: https://github.com/xuchaoqian/web_socket_channel.git

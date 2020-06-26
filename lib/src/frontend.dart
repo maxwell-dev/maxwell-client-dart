@@ -118,8 +118,7 @@ class Frontend {
 
   void _onDisconnectedFromFrontend([_]) {
     if (!this._completer.isCompleted) {
-      this._completer.completeError(
-          "Lost connection to endpoint: ${this._endpoints[this._endpoint_index]}");
+      this._completer.completeError('Lost connection');
     }
     this._completer = Completer();
     this._cancelAllPullTasks();
@@ -173,6 +172,11 @@ class Frontend {
     if (queue.isFull()) {
       logger.i('Queue is full(${queue.size()}), waiting for consuming...');
       Timer(100.milliseconds, () => this._newPullTask(topic, offset));
+      return;
+    }
+    if (this._connection == null) {
+      logger.e('Lost connection, will pull again...');
+      Timer(1.seconds, () => this._newPullTask(topic, offset));
       return;
     }
     this._pullTasks[topic] = CancelableOperation.fromFuture(this

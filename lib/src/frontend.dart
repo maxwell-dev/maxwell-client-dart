@@ -111,6 +111,7 @@ class Frontend {
 
   void _onConnectedToFrontend([_]) {
     this._completer.complete();
+    this._completer = Completer();
     this._renewAllPullTasks();
   }
 

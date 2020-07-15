@@ -25,4 +25,8 @@ class Client {
   dynamic request(Action action, [Params params]) async {
     return await this._frontend.request(action, params);
   }
+
+  void close() {
+    this._frontend.close();
+  }
 }

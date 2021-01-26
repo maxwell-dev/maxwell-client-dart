@@ -84,7 +84,7 @@ class Frontend {
     var msg = this._createDoReq(action, params);
     await this._getConnectionReady();
     if (this._connection == null) {
-      throw 'Frontend was closed';
+      throw 'Frontend already closed';
     }
     do_rep_t result = await this._connection.send(msg);
     return jsonDecode(result.value);

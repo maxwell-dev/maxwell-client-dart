@@ -83,6 +83,9 @@ class Frontend {
   dynamic request(Action action, [Params params]) async {
     var msg = this._createDoReq(action, params);
     await this._getConnectionReady();
+    if (this._connection == null) {
+      throw 'Frontend was closed';
+    }
     do_rep_t result = await this._connection.send(msg);
     return jsonDecode(result.value);
   }
@@ -169,6 +172,9 @@ class Frontend {
       return;
     }
     var queue = this._queues[topic];
+    if (queue == null) {
+      return;
+    }
     if (queue.isFull()) {
       logger.i('Queue is full(${queue.size()}), waiting for consuming...');
       Timer(100.milliseconds, () => this._newPullTask(topic, offset));

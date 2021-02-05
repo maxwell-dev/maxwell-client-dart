@@ -177,7 +177,7 @@ class Frontend {
     }
     if (queue.isFull()) {
       logger.i('Queue is full(${queue.size()}), waiting for consuming...');
-      Timer(100.milliseconds, () => this._newPullTask(topic, offset));
+      Timer(1.seconds, () => this._newPullTask(topic, offset));
       return;
     }
     if (this._connection == null) {
@@ -193,12 +193,13 @@ class Frontend {
       var lastOffset = queue.lastOffset();
       var nextOffset = lastOffset + 1;
       this._progressManager[topic] = nextOffset;
-      Timer(10.milliseconds, () => this._newPullTask(topic, nextOffset));
+      Timer(this._options.pullInterval,
+          () => this._newPullTask(topic, nextOffset));
       this._callbacks[topic](lastOffset);
     }).catchError((e, s) {
       if (e is TimeoutException) {
         logger.d('Timeout occured: reason: $e, stack: $s, will pull again...');
-        Timer(10.milliseconds, () => this._newPullTask(topic, offset));
+        Timer(1.seconds, () => this._newPullTask(topic, offset));
       } else {
         logger.e('Error occured: reason: $e, stack: $s, will pull again...');
         Timer(1.seconds, () => this._newPullTask(topic, offset));

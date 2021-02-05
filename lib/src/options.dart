@@ -4,6 +4,7 @@ class Options {
   Duration reconnectDelay;
   Duration heartbeatInterval;
   Duration defaultRoundTimeout;
+  Duration pullInterval;
   int defaultOffset;
   int getLimit;
   int queueCapacity;
@@ -15,6 +16,7 @@ class Options {
       {this.reconnectDelay = const Duration(milliseconds: 3000),
       this.heartbeatInterval = const Duration(milliseconds: 10000),
       this.defaultRoundTimeout = const Duration(milliseconds: 15000),
+      this.pullInterval = const Duration(milliseconds: 200),
       this.defaultOffset = -600,
       this.getLimit = 64,
       this.queueCapacity = 512,

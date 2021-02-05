@@ -168,13 +168,10 @@ class Frontend {
 
   void _newPullTask(topic, offset) {
     this._cancelPullTask(topic);
-    if (!this._progressManager.contains(topic)) {
+    if (!this._isSubscribing(topic)) {
       return;
     }
     var queue = this._queues[topic];
-    if (queue == null) {
-      return;
-    }
     if (queue.isFull()) {
       logger.w('Queue is full(${queue.size()}), waiting for consuming...');
       Timer(1.seconds, () => this._newPullTask(topic, offset));
@@ -189,6 +186,9 @@ class Frontend {
         ._connection
         .send(this._createPullReq(topic, offset), 5.seconds)
         .then((value) {
+      if (!this._isSubscribing(topic)) {
+        return;
+      }
       queue.put((value as pull_rep_t).msgs);
       var lastOffset = queue.lastOffset();
       var nextOffset = lastOffset + 1;
@@ -238,5 +238,15 @@ class Frontend {
       ..value = jsonEncode(action.value != null ? action.value : {})
       ..traces.add(trace_t())
       ..sourceEnabled = params.sourceEnabled;
+  }
+
+  bool _isSubscribing(topic) {
+    if (this._progressManager.contains(topic) &&
+        this._queues.containsKey(topic) &&
+        this._callbacks.containsKey(topic)) {
+      return true;
+    } else {
+      return false;
+    }
   }
 }

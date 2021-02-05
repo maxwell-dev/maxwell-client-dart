@@ -176,7 +176,7 @@ class Frontend {
       return;
     }
     if (queue.isFull()) {
-      logger.i('Queue is full(${queue.size()}), waiting for consuming...');
+      logger.w('Queue is full(${queue.size()}), waiting for consuming...');
       Timer(1.seconds, () => this._newPullTask(topic, offset));
       return;
     }

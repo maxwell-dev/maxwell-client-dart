@@ -175,10 +175,11 @@ class Frontend {
     if (queue.isFull()) {
       logger.w('Queue is full(${queue.size()}), waiting for consuming...');
       Timer(1.seconds, () => this._newPullTask(topic, offset));
+      this._callbacks[topic](offset - 1);
       return;
     }
     if (this._connection == null) {
-      logger.d('Lost connection, will pull again...');
+      logger.d('Lost connection, waiting for reconnecting...');
       Timer(1.seconds, () => this._newPullTask(topic, offset));
       return;
     }

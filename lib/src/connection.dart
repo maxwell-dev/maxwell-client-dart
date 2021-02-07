@@ -4,7 +4,7 @@ import 'package:maxwell_protocol/maxwell_protocol.dart';
 import 'package:maxwell_client/maxwell_client.dart';
 import './logger.dart';
 
-const int _MAX_REF = 1000000;
+const int _MAX_REF = 100000000;
 
 class Connection with Listenable {
   String _endpoint = null;
@@ -55,7 +55,7 @@ class Connection with Listenable {
 
     return completer.future.timeout(timeout, onTimeout: () {
       var desc = TimeoutException('msg: ${msg.toString()}');
-      logger.i(desc);
+      logger.d(desc);
       this._completers.remove(ref)?.completeError(desc);
       return Future.error(desc);
     });

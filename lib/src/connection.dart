@@ -51,6 +51,10 @@ class Connection with Listenable {
     var completer = Completer<GeneratedMessage>();
     this._completers[ref] = completer;
 
+    if (this._options.debugRoundEnabled) {
+      logger.d('Sending msg: $msg');
+    }
+
     this._send(msg);
 
     return completer.future.timeout(timeout, onTimeout: () {
@@ -88,6 +92,10 @@ class Connection with Listenable {
 
     if (msg is ping_req_t) {
       return;
+    }
+
+    if (this._options.debugRoundEnabled) {
+      logger.d('Received msg: $msg');
     }
 
     var ref = msg.get_ref();

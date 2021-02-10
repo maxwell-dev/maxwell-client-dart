@@ -11,6 +11,7 @@ class Options {
   bool masterEnabled;
   bool sslEnabled;
   Level logLevel;
+  bool debugRoundEnabled;
 
   Options(
       {this.reconnectDelay = const Duration(milliseconds: 3000),
@@ -22,5 +23,6 @@ class Options {
       this.queueCapacity = 512,
       this.masterEnabled = true,
       this.sslEnabled = false,
-      this.logLevel = Level.info});
+      this.logLevel = Level.info,
+      this.debugRoundEnabled = false});
 }

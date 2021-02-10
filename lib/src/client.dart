@@ -26,6 +26,14 @@ class Client {
     return await this._frontend.request(action, params);
   }
 
+  void suspend() {
+    this._frontend.suspend();
+  }
+
+  void resume() {
+    this._frontend.resume();
+  }
+
   void close() {
     this._frontend.close();
   }

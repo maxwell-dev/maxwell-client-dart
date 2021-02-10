@@ -33,9 +33,11 @@ class Frontend {
   Map<String, CancelableOperation<void>> _pullTasks = Map();
 
   bool _shouldRun = true;
+
   Connection _connection = null;
   int _endpoint_index = -1;
-  Completer<void> _completer = Completer();
+  bool _isConnectionReady = false;
+  Completer<void> _completer = Completer(); // check if connection is ready
 
   Frontend(endpoints, options)
       : _endpoints = endpoints,
@@ -43,11 +45,27 @@ class Frontend {
     this._connectToFrontend();
   }
 
+  void suspend() {
+    if (!this._shouldRun) {
+      return;
+    }
+    this._shouldRun = false;
+    this._disconnectFromFrontend();
+    this._cancelAllPullTasks();
+  }
+
+  void resume() {
+    if (this._shouldRun) {
+      return;
+    }
+    this._shouldRun = true;
+    this._connectToFrontend();
+  }
+
   void close() {
     this._shouldRun = false;
     this._disconnectFromFrontend();
     this._cancelAllPullTasks();
-    this._pullTasks.clear();
     this._queues.clear();
     this._progressManager.clear();
   }
@@ -59,7 +77,7 @@ class Frontend {
     this._progressManager[topic] = offset;
     this._queues[topic] = Queue(_QUEUE_CAPACITY);
     this._callbacks[topic] = callback;
-    if (this._isConnectionReady()) {
+    if (this._isConnectionReady) {
       this._newPullTask(topic, offset);
     }
   }
@@ -102,6 +120,13 @@ class Frontend {
   }
 
   void _disconnectFromFrontend() {
+    this._isConnectionReady = false;
+    if (!this._completer.isCompleted) {
+      this._completer.completeError('Lost connection');
+    } else {
+      logger.w('Was completed already');
+    }
+    this._completer = Completer();
     if (this._connection == null) {
       return;
     }
@@ -113,26 +138,21 @@ class Frontend {
   }
 
   void _onConnectedToFrontend([_]) {
+    this._isConnectionReady = true;
     if (!this._completer.isCompleted) {
       this._completer.complete();
+    } else {
+      logger.w('Was completed already');
     }
     this._renewAllPullTasks();
   }
 
   void _onDisconnectedFromFrontend([_]) {
-    if (!this._completer.isCompleted) {
-      this._completer.completeError('Lost connection');
-    }
-    this._completer = Completer();
+    this._disconnectFromFrontend();
     this._cancelAllPullTasks();
     if (this._shouldRun) {
-      this._disconnectFromFrontend();
       Timer(Duration(seconds: 1), () => this._connectToFrontend());
     }
-  }
-
-  bool _isConnectionReady() {
-    return this._connection != null && this._connection.isReady();
   }
 
   Future<void> _getConnectionReady() {
@@ -168,7 +188,7 @@ class Frontend {
 
   void _newPullTask(topic, offset) {
     this._cancelPullTask(topic);
-    if (!this._isSubscribing(topic)) {
+    if (!this._isValidSubscription(topic)) {
       return;
     }
     var queue = this._queues[topic];
@@ -187,7 +207,7 @@ class Frontend {
         ._connection
         .send(this._createPullReq(topic, offset), 5.seconds)
         .then((value) {
-      if (!this._isSubscribing(topic)) {
+      if (!this._isValidSubscription(topic)) {
         return;
       }
       queue.put((value as pull_rep_t).msgs);
@@ -200,7 +220,7 @@ class Frontend {
     }).catchError((e, s) {
       if (e is TimeoutException) {
         logger.d('Timeout occured: reason: $e, stack: $s, will pull again...');
-        Timer(1.seconds, () => this._newPullTask(topic, offset));
+        Timer(10.milliseconds, () => this._newPullTask(topic, offset));
       } else {
         logger.e('Error occured: reason: $e, stack: $s, will pull again...');
         Timer(1.seconds, () => this._newPullTask(topic, offset));
@@ -241,7 +261,7 @@ class Frontend {
       ..sourceEnabled = params.sourceEnabled;
   }
 
-  bool _isSubscribing(topic) {
+  bool _isValidSubscription(topic) {
     if (this._progressManager.contains(topic) &&
         this._queues.containsKey(topic) &&
         this._callbacks.containsKey(topic)) {

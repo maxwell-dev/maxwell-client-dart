@@ -65,6 +65,9 @@ class Frontend {
   void close() {
     this._shouldRun = false;
     this._disconnectFromFrontend();
+    if (!this._completer.isCompleted) {
+      this._completer.complete();
+    }
     this._cancelAllPullTasks();
     this._queues.clear();
     this._progressManager.clear();
@@ -102,7 +105,7 @@ class Frontend {
     var msg = this._createDoReq(action, params);
     await this._getConnectionReady();
     if (this._connection == null) {
-      throw 'Frontend already closed';
+      throw 'Lost connection, not allowed to send msg';
     }
     do_rep_t result = await this._connection.send(msg);
     return jsonDecode(result.value);
@@ -121,12 +124,11 @@ class Frontend {
 
   void _disconnectFromFrontend() {
     this._isConnectionReady = false;
-    if (!this._completer.isCompleted) {
-      this._completer.completeError('Lost connection');
+    if (this._completer.isCompleted) {
+      this._completer = Completer();
     } else {
-      logger.w('Was completed already');
+      logger.i("Completer isn't completed still");
     }
-    this._completer = Completer();
     if (this._connection == null) {
       return;
     }
@@ -142,7 +144,7 @@ class Frontend {
     if (!this._completer.isCompleted) {
       this._completer.complete();
     } else {
-      logger.w('Was completed already');
+      logger.w('Already completed as done');
     }
     this._renewAllPullTasks();
   }

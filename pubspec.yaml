@@ -1,13 +1,14 @@
 name: maxwell_client
-version: 0.5.3
+version: 0.5.4
 description: A maxwell client for dart.
 homepage: https://github.com/maxwell-dev/maxwell-client-dart.git
+publish_to: none
 
 environment:
   sdk: ">=2.6.0 <3.0.0"
 
 dependencies:
-  logger: ^0.9.4
+  logger: ^1.0.0
   time: ^1.2.0
   async: ^2.4.0
   meta: ^1.1.8

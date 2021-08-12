@@ -6,7 +6,7 @@ typedef OnEvent = void Function([dynamic result]);
 
 mixin Listenable {
   Map<Event, List<OnEvent>> _listeners = Map();
-  List<Tuple3> _pendingListeners = List();
+  List<Tuple3> _pendingListeners = [];
   bool _isInIteration = false;
 
   void addListener(Event event, OnEvent callback) {

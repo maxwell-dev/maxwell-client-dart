@@ -1,20 +1,19 @@
 import 'dart:async';
 import 'package:web_socket_channel2/io.dart';
-import 'package:maxwell_protocol/maxwell_protocol.dart';
 import 'package:maxwell_client/maxwell_client.dart';
 import './logger.dart';
 
 const int _MAX_REF = 100000000;
 
 class Connection with Listenable {
-  String _endpoint = null;
-  Options _options = null;
+  String _endpoint;
+  Options _options;
   bool _shouldRun = true;
-  Timer _reconnectTimer = null;
-  Timer _heartbeatTimer = null;
+  Timer? _reconnectTimer = null;
+  Timer? _heartbeatTimer = null;
   DateTime _lastSendingTime = DateTime.now();
   int _lastRef = 0;
-  IOWebSocketChannel _channel = null;
+  late IOWebSocketChannel _channel;
   bool _isReady = false;
   Map<int, Completer> _completers = Map();
 
@@ -39,7 +38,7 @@ class Connection with Listenable {
   }
 
   Future<GeneratedMessage> send(GeneratedMessage msg,
-      [Duration timeout = null]) async {
+      [Duration? timeout = null]) async {
     var ref = this._newRef();
 
     msg.set_ref(ref);
@@ -81,7 +80,7 @@ class Connection with Listenable {
   }
 
   void onData(data) {
-    GeneratedMessage msg = null;
+    GeneratedMessage msg;
     try {
       msg = decode_msg(data);
     } catch (e, s) {
@@ -146,10 +145,7 @@ class Connection with Listenable {
   }
 
   void _closeChannel() {
-    if (this._channel != null) {
-      this._channel.sink.close().then((_) {});
-      this._channel = null;
-    }
+    this._channel.sink.close().then((_) {});
   }
 
   void _reconnect() {
@@ -158,7 +154,7 @@ class Connection with Listenable {
 
   void _stopReconnect() {
     if (this._reconnectTimer != null) {
-      this._reconnectTimer.cancel();
+      this._reconnectTimer!.cancel();
       this._reconnectTimer = null;
     }
   }
@@ -172,7 +168,7 @@ class Connection with Listenable {
 
   void _stopSendHeartbeat() {
     if (this._heartbeatTimer != null) {
-      this._heartbeatTimer.cancel();
+      this._heartbeatTimer!.cancel();
       this._heartbeatTimer = null;
     }
   }
@@ -218,6 +214,7 @@ class Connection with Listenable {
   Uri _buildUri() {
     var parts = this._endpoint.split(':');
     var scheme = this._options.sslEnabled ? 'wss' : 'ws';
-    return Uri(scheme: scheme, host: parts[0], port: int.parse(parts[1]));
+    return Uri(
+        scheme: scheme, host: parts[0], port: int.parse(parts[1]), path: "ws");
   }
 }

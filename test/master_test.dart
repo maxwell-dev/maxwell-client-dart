@@ -10,12 +10,12 @@ void main() {
   test("all", () async {
     var master = Master(["localhost:8081"], Options());
     try {
-      var endpoint = await master.resolveFrontend(10.seconds);
+      var endpoint = await master.assignFrontend(10.seconds);
       logger.i("resolved endpoint: $endpoint");
     } catch (e, s) {
       logger.e("failed to resolve endpoint: $e, $s");
     }
-    var server = await HttpServer.bind(InternetAddress.loopbackIPv4, 9999);
+    var server = await HttpServer.bind(InternetAddress.loopbackIPv4, 9997);
     print("Serving at ${server.address}:${server.port}");
 
     await for (var request in server) {

@@ -1,31 +1,23 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:convert';
-import 'package:meta/meta.dart';
 import 'package:async/async.dart';
 import 'package:time/time.dart';
 import 'package:fixnum/fixnum.dart';
-import 'package:maxwell_protocol/maxwell_protocol.dart';
 import 'package:maxwell_client/maxwell_client.dart';
 import './logger.dart';
 
 typedef OnMsg = void Function(int lastOffset);
 final int _QUEUE_CAPACITY = 128;
 
-class Action {
-  String type;
-  dynamic value;
-  Action({@required this.type, this.value = ''});
-}
-
-class Params {
+class Headers {
+  String? token;
   bool sourceEnabled;
-  Params({this.sourceEnabled = false});
+  Headers({this.sourceEnabled = false});
 }
 
 class Frontend {
-  List<String> _endpoints = null;
-  Options _options = null;
+  List<String> _endpoints;
+  Options _options;
 
   ProgressManager _progressManager = ProgressManager();
   Map<String, Queue> _queues = new Map();
@@ -34,7 +26,7 @@ class Frontend {
 
   bool _shouldRun = true;
 
-  Connection _connection = null;
+  Connection? _connection = null;
   int _endpoint_index = -1;
   bool _isConnectionReady = false;
   Completer<void> _completer = Completer(); // check if connection is ready
@@ -93,22 +85,26 @@ class Frontend {
   }
 
   List<msg_t> consume(topic, [offset = 0, limit = 32]) {
-    var msgs = this._queues[topic].getFrom(offset, limit);
+    var queue = this._queues[topic];
+    if (queue == null) {
+      return [];
+    }
+    var msgs = queue.getFrom(offset, limit);
     var count = msgs.length;
     if (count > 0) {
-      this._queues[topic].removeTo(msgs[count - 1].offset.toInt());
+      queue.removeTo(msgs[count - 1].offset.toInt());
     }
     return msgs;
   }
 
-  dynamic request(Action action, [Params params]) async {
-    var msg = this._createDoReq(action, params);
+  dynamic request(String path, dynamic payload, [Headers? headers]) async {
+    var msg = this._createReqReq(path, payload, headers);
     await this._getConnectionReady();
     if (this._connection == null) {
       throw 'Lost connection, not allowed to send msg';
     }
-    do_rep_t result = await this._connection.send(msg);
-    return jsonDecode(result.value);
+    req_rep_t result = await this._connection!.send(msg) as req_rep_t;
+    return jsonDecode(result.payload);
   }
 
   void _connectToFrontend() {
@@ -132,10 +128,10 @@ class Frontend {
     if (this._connection == null) {
       return;
     }
-    this._connection
+    this._connection!
       ..removeListener(Event.ON_CONNECTED, this._onConnectedToFrontend)
       ..removeListener(Event.ON_DISCONNECTED, this._onDisconnectedFromFrontend);
-    this._connection.close();
+    this._connection!.close();
     this._connection = null;
   }
 
@@ -168,7 +164,7 @@ class Frontend {
     var master;
     try {
       master = new Master(this._endpoints, this._options);
-      return await master.resolveFrontend(5.seconds);
+      return await master.assignFrontend(5.seconds);
     } finally {
       master.close();
     }
@@ -193,11 +189,11 @@ class Frontend {
     if (!this._isValidSubscription(topic)) {
       return;
     }
-    var queue = this._queues[topic];
+    var queue = this._queues[topic]!;
     if (queue.isFull()) {
       logger.w('Queue is full(${queue.size()}), waiting for consuming...');
       Timer(1.seconds, () => this._newPullTask(topic, offset));
-      this._callbacks[topic](offset - 1);
+      this._callbacks[topic]!(offset - 1);
       return;
     }
     if (this._connection == null) {
@@ -206,7 +202,7 @@ class Frontend {
       return;
     }
     this._pullTasks[topic] = CancelableOperation.fromFuture(this
-        ._connection
+        ._connection!
         .send(this._createPullReq(topic, offset), 5.seconds)
         .then((value) {
       if (!this._isValidSubscription(topic)) {
@@ -218,7 +214,7 @@ class Frontend {
       this._progressManager[topic] = nextOffset;
       Timer(this._options.pullInterval,
           () => this._newPullTask(topic, nextOffset));
-      this._callbacks[topic](lastOffset);
+      this._callbacks[topic]!(lastOffset);
     }).catchError((e, s) {
       if (e is TimeoutException) {
         logger.d('Timeout occured: reason: $e, stack: $s, will pull again...');
@@ -252,15 +248,19 @@ class Frontend {
       ..limit = this._options.getLimit;
   }
 
-  do_req_t _createDoReq(Action action, [Params params]) {
-    if (params == null) {
-      params = Params();
+  req_req_t _createReqReq(String path, dynamic payload, [Headers? headers]) {
+    if (headers == null) {
+      headers = Headers();
     }
-    return do_req_t()
-      ..type = action.type
-      ..value = jsonEncode(action.value != null ? action.value : {})
-      ..traces.add(trace_t())
-      ..sourceEnabled = params.sourceEnabled;
+
+    var header = header_t();
+    if (headers.token != null) {
+      header.token = headers.token!;
+    }
+    return req_req_t()
+      ..path = path
+      ..payload = jsonEncode(payload != null ? payload : {})
+      ..header = header;
   }
 
   bool _isValidSubscription(topic) {

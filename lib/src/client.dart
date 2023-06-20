@@ -2,7 +2,7 @@ import 'package:logger/logger.dart';
 import 'package:maxwell_client/maxwell_client.dart';
 
 class Client {
-  Frontend _frontend;
+  late Frontend _frontend;
 
   Client(endpoints, [options]) {
     var finalOptions = options == null ? Options() : options;
@@ -22,8 +22,9 @@ class Client {
     return this._frontend.consume(topic, offset, limit);
   }
 
-  dynamic request(Action action, [Params params]) async {
-    return await this._frontend.request(action, params);
+  dynamic request(String path,
+      [dynamic payload = null, Headers? headers]) async {
+    return await this._frontend.request(path, payload, headers);
   }
 
   void suspend() {

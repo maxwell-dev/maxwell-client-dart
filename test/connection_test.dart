@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:logger/logger.dart';
 import 'package:test/test.dart';
 import 'package:time/time.dart';
-import 'package:maxwell_protocol/maxwell_protocol.dart';
 import 'package:maxwell_client/maxwell_client.dart';
 
 final logger = Logger();
@@ -16,7 +15,7 @@ void main() {
     }, onError: (error) {
       logger.e('Error occured: $error');
     });
-    var server = await HttpServer.bind(InternetAddress.loopbackIPv4, 9999);
+    var server = await HttpServer.bind(InternetAddress.loopbackIPv4, 9998);
     print("Serving at ${server.address}:${server.port}");
 
     await for (var request in server) {

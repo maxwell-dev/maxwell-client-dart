@@ -17,7 +17,7 @@ class ProgressManager {
     return this._progresses.containsKey(topic);
   }
 
-  int operator [](String topic) {
+  int? operator [](String topic) {
     return this._progresses[topic];
   }
 

@@ -9,10 +9,10 @@ final logger = Logger();
 
 var client = Client(["localhost:8081"], Options()..logLevel = Level.error);
 
-void request(retry) async {
+Future<void> request(retry) async {
   try {
-    var reply = await client.request(Action(type: "get_candles"));
-    logger.i('received reply: $reply');
+    var reply = await client.request("/hello");
+    print('received reply: ${reply.length}');
     await Future.delayed(1.seconds);
   } catch (e) {
     print("=======>");

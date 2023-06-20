@@ -1,10 +1,9 @@
-import 'package:maxwell_protocol/maxwell_protocol.dart';
 import 'package:maxwell_client/maxwell_client.dart';
 
 class Master {
-  List<String> _endpoints = null;
-  Options _options = null;
-  Connection _connection = null;
+  List<String> _endpoints;
+  Options _options;
+  Connection? _connection = null;
   int _endpoint_index = -1;
 
   Master(endpoints, options)
@@ -17,13 +16,14 @@ class Master {
     this._disconnectFromMaster();
   }
 
-  Future<String> resolveFrontend([Duration timeout = null]) async {
+  Future<String> assignFrontend([Duration? timeout = null]) async {
     if (timeout == null) {
       timeout = this._options.defaultRoundTimeout;
     }
-    await this._connection.ready().timeout(timeout);
-    resolve_frontend_rep_t rep =
-        await this._connection.send(resolve_frontend_req_t());
+    await this._connection!.ready().timeout(timeout);
+    assign_frontend_rep_t rep = await this
+        ._connection!
+        .send(assign_frontend_req_t()) as assign_frontend_rep_t;
     return rep.endpoint;
   }
 
@@ -35,7 +35,7 @@ class Master {
     if (this._connection == null) {
       return;
     }
-    this._connection.close();
+    this._connection!.close();
     this._connection = null;
   }
 

@@ -164,7 +164,7 @@ class Frontend {
     var master;
     try {
       master = new Master(this._endpoints, this._options);
-      return await master.assignFrontend(5.seconds);
+      return await master.pickFrontend(5.seconds);
     } finally {
       master.close();
     }

@@ -10,7 +10,7 @@ void main() {
   test("all", () async {
     var master = Master(["localhost:8081"], Options());
     try {
-      var endpoint = await master.assignFrontend(10.seconds);
+      var endpoint = await master.pickFrontend(10.seconds);
       logger.i("resolved endpoint: $endpoint");
     } catch (e, s) {
       logger.e("failed to resolve endpoint: $e, $s");

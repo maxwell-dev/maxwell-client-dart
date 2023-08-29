@@ -16,14 +16,14 @@ class Master {
     this._disconnectFromMaster();
   }
 
-  Future<String> assignFrontend([Duration? timeout = null]) async {
+  Future<String> pickFrontend([Duration? timeout = null]) async {
     if (timeout == null) {
       timeout = this._options.defaultRoundTimeout;
     }
     await this._connection!.ready().timeout(timeout);
-    assign_frontend_rep_t rep = await this
+    pick_frontend_rep_t rep = await this
         ._connection!
-        .send(assign_frontend_req_t()) as assign_frontend_rep_t;
+        .send(pick_frontend_req_t()) as pick_frontend_rep_t;
     return rep.endpoint;
   }
 

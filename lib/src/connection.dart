@@ -215,6 +215,9 @@ class Connection with Listenable {
     var parts = this._endpoint.split(':');
     var scheme = this._options.sslEnabled ? 'wss' : 'ws';
     return Uri(
-        scheme: scheme, host: parts[0], port: int.parse(parts[1]), path: "ws");
+        scheme: scheme,
+        host: parts[0],
+        port: int.parse(parts[1]),
+        path: "\$ws");
   }
 }

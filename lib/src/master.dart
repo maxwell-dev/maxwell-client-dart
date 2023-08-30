@@ -1,42 +1,70 @@
-import 'package:maxwell_client/maxwell_client.dart';
+import 'dart:convert';
+import 'dart:math';
+import 'package:http/http.dart' as http;
+import './store.dart';
+import './logger.dart';
+
+const CACHE_KEY = "maxwell-client.frontend-endpoints";
+const CACHE_TTL = 60 * 60 * 24;
 
 class Master {
   List<String> _endpoints;
-  Options _options;
-  Connection? _connection = null;
   int _endpoint_index = -1;
+  late Store _store;
 
-  Master(endpoints, options)
-      : _endpoints = endpoints,
-        _options = options {
-    this._connectToMaster();
+  Master(endpoints, options) : _endpoints = endpoints {
+    this._initEndpointIndex();
+    this._store = options.store!;
   }
 
-  void close() {
-    this._disconnectFromMaster();
+  Future<String> pickFrontend({force = false}) async {
+    var frontends = await this.pickFrontends(force: force);
+    return frontends[Random().nextInt(frontends.length)];
   }
 
-  Future<String> pickFrontend([Duration? timeout = null]) async {
-    if (timeout == null) {
-      timeout = this._options.defaultRoundTimeout;
+  Future<List> pickFrontends({force = false}) async {
+    if (!force) {
+      Map? endpointsInfo = this._store.get(CACHE_KEY);
+      if (endpointsInfo != null) {
+        if (this._now() - endpointsInfo["ts"] >= CACHE_TTL) {
+          this._store.remove(CACHE_KEY);
+        } else {
+          return endpointsInfo["endpoints"];
+        }
+      }
     }
-    await this._connection!.ready().timeout(timeout);
-    pick_frontend_rep_t rep = await this
-        ._connection!
-        .send(pick_frontend_req_t()) as pick_frontend_rep_t;
-    return rep.endpoint;
-  }
-
-  void _connectToMaster() {
-    this._connection = new Connection(this._nextEndpoint(), this._options);
-  }
-
-  void _disconnectFromMaster() {
-    if (this._connection == null) {
-      return;
+    var rep = await this._request('/\$pick-frontends');
+    if (rep["code"] != 0) {
+      throw new Exception('Failed to pick frontends: ${rep.code}');
     }
-    this._connection!.close();
-    this._connection = null;
+    var endpoints = rep['endpoints']!;
+    if (endpoints.length == 0) {
+      throw new Exception('Failed to pick available frontends!');
+    }
+    this._store.set(CACHE_KEY, {'ts': this._now(), 'endpoints': endpoints});
+    return endpoints;
+  }
+
+  Future<dynamic> _request(String path) async {
+    var url = Uri.http(this._nextEndpoint(), path);
+    logger.i('Requesting master: $url');
+    var response = await http.get(url);
+    if (response.statusCode != 200) {
+      throw new Exception("Request failed: ${response.statusCode}");
+    }
+    var rep = jsonDecode(response.body);
+    logger.i('Successfully to request: rep: $rep');
+    if (rep['code'] != 0) {
+      throw new Exception("Request failed: ${rep['code']}");
+    }
+    return rep;
+  }
+
+  void _initEndpointIndex() {
+    if (this._endpoints.length == 0) {
+      throw new Exception("No endpoint provided");
+    }
+    this._endpoint_index = Random().nextInt(this._endpoints.length);
   }
 
   String _nextEndpoint() {
@@ -45,5 +73,9 @@ class Master {
       this._endpoint_index = 0;
     }
     return this._endpoints[this._endpoint_index];
+  }
+
+  int _now() {
+    return (DateTime.now().millisecondsSinceEpoch / 1000).round();
   }
 }

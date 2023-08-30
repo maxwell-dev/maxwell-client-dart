@@ -1,4 +1,5 @@
 import 'package:logger/logger.dart' show Level;
+import './store.dart';
 
 class Options {
   Duration reconnectDelay;
@@ -12,17 +13,23 @@ class Options {
   bool sslEnabled;
   Level logLevel;
   bool debugRoundEnabled;
+  Store? store;
 
   Options(
       {this.reconnectDelay = const Duration(milliseconds: 3000),
       this.heartbeatInterval = const Duration(milliseconds: 10000),
       this.defaultRoundTimeout = const Duration(milliseconds: 15000),
       this.pullInterval = const Duration(milliseconds: 200),
-      this.defaultOffset = -600,
+      this.defaultOffset = -60,
       this.getLimit = 64,
       this.queueCapacity = 512,
       this.masterEnabled = true,
       this.sslEnabled = false,
       this.logLevel = Level.info,
-      this.debugRoundEnabled = false});
+      this.debugRoundEnabled = false,
+      this.store}) {
+    if (this.store == null) {
+      this.store = new DefaultStore();
+    }
+  }
 }

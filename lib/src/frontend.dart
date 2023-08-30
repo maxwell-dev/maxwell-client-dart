@@ -19,21 +19,25 @@ class Frontend {
   List<String> _endpoints;
   Options _options;
 
+  Master _master;
+
   ProgressManager _progressManager = ProgressManager();
   Map<String, Queue> _queues = new Map();
   Map<String, OnMsg> _callbacks = Map();
   Map<String, CancelableOperation<void>> _pullTasks = Map();
 
-  bool _shouldRun = true;
-
   Connection? _connection = null;
   int _endpoint_index = -1;
   bool _isConnectionReady = false;
   Completer<void> _completer = Completer(); // check if connection is ready
+  bool _failedToConnect = false;
+
+  bool _shouldRun = true;
 
   Frontend(endpoints, options)
       : _endpoints = endpoints,
-        _options = options {
+        _options = options,
+        _master = new Master(endpoints, options) {
     this._connectToFrontend();
   }
 
@@ -108,12 +112,14 @@ class Frontend {
   }
 
   void _connectToFrontend() {
-    this._resolveEndpoint().then((endpoint) {
+    this._pickEndpoint().then((endpoint) {
       this._connection = new Connection(endpoint, this._options)
         ..addListener(Event.ON_CONNECTED, this._onConnectedToFrontend)
+        ..addListener(Event.error(Code.FAILED_TO_CONNECT),
+            this._onConnectToFrontendFailed)
         ..addListener(Event.ON_DISCONNECTED, this._onDisconnectedFromFrontend);
     }).catchError((e, s) {
-      logger.e('Failed to resolve endpoint: reason: $e, statck: $s');
+      logger.e('Failed to pick endpoint: reason: $e, statck: $s');
       Timer(Duration(seconds: 1), () => this._connectToFrontend());
     });
   }
@@ -130,6 +136,8 @@ class Frontend {
     }
     this._connection!
       ..removeListener(Event.ON_CONNECTED, this._onConnectedToFrontend)
+      ..removeListener(
+          Event.error(Code.FAILED_TO_CONNECT), this._onConnectToFrontendFailed)
       ..removeListener(Event.ON_DISCONNECTED, this._onDisconnectedFromFrontend);
     this._connection!.close();
     this._connection = null;
@@ -137,6 +145,7 @@ class Frontend {
 
   void _onConnectedToFrontend([_]) {
     this._isConnectionReady = true;
+    this._failedToConnect = false;
     if (!this._completer.isCompleted) {
       this._completer.complete();
     } else {
@@ -145,7 +154,12 @@ class Frontend {
     this._renewAllPullTasks();
   }
 
+  void _onConnectToFrontendFailed([_]) {
+    this._failedToConnect = true;
+  }
+
   void _onDisconnectedFromFrontend([_]) {
+    this._isConnectionReady = false;
     this._disconnectFromFrontend();
     this._cancelAllPullTasks();
     if (this._shouldRun) {
@@ -157,17 +171,14 @@ class Frontend {
     return this._completer.future.timeout(5.seconds);
   }
 
-  Future<String> _resolveEndpoint() async {
+  Future<String> _pickEndpoint() async {
     if (!this._options.masterEnabled) {
       return Future.value(this._nextEndpoint());
     }
-    var master;
-    try {
-      master = new Master(this._endpoints, this._options);
-      return await master.pickFrontend(5.seconds);
-    } finally {
-      master.close();
-    }
+    return await this
+        ._master
+        .pickFrontend(force: this._failedToConnect)
+        .timeout(5.seconds);
   }
 
   String _nextEndpoint() {

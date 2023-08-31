@@ -71,7 +71,7 @@ class Frontend {
 
   void subscribe(String topic, int offset, OnMsg callback) {
     if (this._progressManager.contains(topic)) {
-      throw 'Already subscribed: topic: $topic';
+      throw new Exception('Already subscribed: topic: $topic');
     }
     this._progressManager[topic] = offset;
     this._queues[topic] = Queue(_QUEUE_CAPACITY);
@@ -105,7 +105,7 @@ class Frontend {
     var msg = this._createReqReq(path, payload, headers);
     await this._getConnectionReady();
     if (this._connection == null) {
-      throw 'Lost connection, not allowed to send msg';
+      throw new Exception('Lost connection, not allowed to send msg');
     }
     req_rep_t result = await this._connection!.send(msg) as req_rep_t;
     return jsonDecode(result.payload);

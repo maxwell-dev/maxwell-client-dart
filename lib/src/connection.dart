@@ -218,6 +218,6 @@ class Connection with Listenable {
         scheme: scheme,
         host: parts[0],
         port: int.parse(parts[1]),
-        path: "\$ws");
+        path: '\$ws');
   }
 }

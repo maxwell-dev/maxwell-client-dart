@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import './store.dart';
 import './logger.dart';
 
-const CACHE_KEY = "maxwell-client.frontend-endpoints";
+const CACHE_KEY = 'maxwell-client.frontend-endpoints';
 const CACHE_TTL = 60 * 60 * 24;
 
 class Master {
@@ -26,15 +26,15 @@ class Master {
     if (!force) {
       Map? endpointsInfo = this._store.get(CACHE_KEY);
       if (endpointsInfo != null) {
-        if (this._now() - endpointsInfo["ts"] >= CACHE_TTL) {
+        if (this._now() - endpointsInfo['ts'] >= CACHE_TTL) {
           this._store.remove(CACHE_KEY);
         } else {
-          return endpointsInfo["endpoints"];
+          return endpointsInfo['endpoints'];
         }
       }
     }
     var rep = await this._request('/\$pick-frontends');
-    if (rep["code"] != 0) {
+    if (rep['code'] != 0) {
       throw new Exception('Failed to pick frontends: ${rep.code}');
     }
     var endpoints = rep['endpoints']!;
@@ -50,19 +50,17 @@ class Master {
     logger.i('Requesting master: $url');
     var response = await http.get(url);
     if (response.statusCode != 200) {
-      throw new Exception("Request failed: ${response.statusCode}");
+      throw new Exception(
+          'Failed to request master: url: $url, status: ${response.statusCode}');
     }
     var rep = jsonDecode(response.body);
-    logger.i('Successfully to request: rep: $rep');
-    if (rep['code'] != 0) {
-      throw new Exception("Request failed: ${rep['code']}");
-    }
+    logger.i('Successfully to request master: rep: $rep');
     return rep;
   }
 
   void _initEndpointIndex() {
     if (this._endpoints.length == 0) {
-      throw new Exception("No endpoint provided");
+      throw new Exception('No endpoint provided');
     }
     this._endpoint_index = Random().nextInt(this._endpoints.length);
   }

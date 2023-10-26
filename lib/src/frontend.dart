@@ -229,7 +229,7 @@ class Frontend {
     }).catchError((e, s) {
       if (e is TimeoutException) {
         logger.d('Timeout occured: reason: $e, stack: $s, will pull again...');
-        Timer(10.milliseconds, () => this._newPullTask(topic, offset));
+        Timer(0.milliseconds, () => this._newPullTask(topic, offset));
       } else {
         logger.e('Error occured: reason: $e, stack: $s, will pull again...');
         Timer(1.seconds, () => this._newPullTask(topic, offset));

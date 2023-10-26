@@ -181,11 +181,11 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "v0.6.5"
-      resolved-ref: ac1ebbda12784af33a329df817fe0b2d7b928946
+      ref: "v0.7.0"
+      resolved-ref: "10ad06c429c9796c670aad3c8d6ee328ebdf9d24"
       url: "https://github.com/maxwell-dev/maxwell-protocol-dart.git"
     source: git
-    version: "0.6.5"
+    version: "0.7.0"
   meta:
     dependency: "direct main"
     description:

@@ -3,11 +3,10 @@ import 'dart:convert';
 import 'package:async/async.dart';
 import 'package:time/time.dart';
 import 'package:fixnum/fixnum.dart';
-import 'package:maxwell_client/maxwell_client.dart';
-import './logger.dart';
+import 'package:maxwell_protocol/maxwell_protocol.dart';
+import './internal.dart';
 
 typedef OnMsg = void Function(int lastOffset);
-final int _QUEUE_CAPACITY = 128;
 
 class Headers {
   String? token;
@@ -15,68 +14,61 @@ class Headers {
   Headers({this.sourceEnabled = false});
 }
 
-class Frontend {
-  List<String> _endpoints;
+class Frontend with Listenable implements EventHandler {
+  Master _master;
   Options _options;
 
-  Master _master;
-
+  bool _closed = false;
   ProgressManager _progressManager = ProgressManager();
-  Map<String, Queue> _queues = new Map();
   Map<String, OnMsg> _callbacks = Map();
+  Map<String, Queue> _queues = new Map();
   Map<String, CancelableOperation<void>> _pullTasks = Map();
+  Map<String, Timer> _pullTimers = Map();
 
-  Connection? _connection = null;
-  int _endpoint_index = -1;
-  bool _isConnectionReady = false;
-  Completer<void> _completer = Completer(); // check if connection is ready
+  late MultiAltEndpointsConnection _connection;
   bool _failedToConnect = false;
 
-  bool _shouldRun = true;
-
-  Frontend(endpoints, options)
-      : _endpoints = endpoints,
-        _options = options,
-        _master = new Master(endpoints, options) {
-    this._connectToFrontend();
+  Frontend(master, options)
+      : _master = master,
+        _options = options {
+    this._connection = MultiAltEndpointsConnection(this._pickEndpoint, options,
+        eventHandler: this);
   }
 
   void suspend() {
-    if (!this._shouldRun) {
+    if (this._closed) {
+      logger.w('Already closed, ignore suspending.');
       return;
     }
-    this._shouldRun = false;
-    this._disconnectFromFrontend();
     this._cancelAllPullTasks();
   }
 
   void resume() {
-    if (this._shouldRun) {
+    if (this._closed) {
+      logger.w('Already closed, ignore resuming.');
       return;
     }
-    this._shouldRun = true;
-    this._connectToFrontend();
+    this._renewAllPullTasks();
   }
 
-  void close() {
-    this._shouldRun = false;
-    this._disconnectFromFrontend();
-    if (!this._completer.isCompleted) {
-      this._completer.complete();
-    }
+  close() {
+    this._closed = true;
     this._cancelAllPullTasks();
-    this._queues.clear();
     this._progressManager.clear();
+    this._callbacks.clear();
+    this._queues.clear();
+    this._connection.close();
   }
 
   void subscribe(String topic, int offset, OnMsg callback) {
     if (this._progressManager.contains(topic)) {
-      throw new Exception('Already subscribed: topic: $topic');
+      logger.w('Already subscribed: topic: $topic');
+      return;
     }
     this._progressManager[topic] = offset;
-    this._queues[topic] = Queue(_QUEUE_CAPACITY);
+    this._queues[topic] = Queue(this._options.queueCapacity);
     this._callbacks[topic] = callback;
-    if (this._isConnectionReady) {
+    if (this._connection.isOpen()) {
       this._newPullTask(topic, offset);
     }
   }
@@ -101,95 +93,76 @@ class Frontend {
     return msgs;
   }
 
-  dynamic request(String path, dynamic payload, [Headers? headers]) async {
+  dynamic request(String path,
+      {dynamic payload,
+      Headers? headers,
+      Duration? waitOpenTimeout,
+      Duration? roundTimeout}) async {
     var msg = this._createReqReq(path, payload, headers);
-    await this._getConnectionReady();
-    if (this._connection == null) {
-      throw new Exception('Lost connection, not allowed to send msg');
-    }
-    req_rep_t result = await this._connection!.send(msg) as req_rep_t;
+    await this._connection.waitOpen(waitOpenTimeout);
+    req_rep_t result =
+        await this._connection.send(msg, roundTimeout) as req_rep_t;
     return jsonDecode(result.payload);
   }
 
-  void _connectToFrontend() {
-    this._pickEndpoint().then((endpoint) {
-      this._connection = new Connection(endpoint, this._options)
-        ..addListener(Event.ON_CONNECTED, this._onConnectedToFrontend)
-        ..addListener(Event.error(Code.FAILED_TO_CONNECT),
-            this._onConnectToFrontendFailed)
-        ..addListener(Event.ON_DISCONNECTED, this._onDisconnectedFromFrontend);
-    }).catchError((e, s) {
-      logger.e('Failed to pick endpoint: reason: $e, statck: $s');
-      Timer(Duration(seconds: 1), () => this._connectToFrontend());
-    });
+  //===========================================
+  // EventHandler implementation
+  //===========================================
+
+  @override
+  onConnecting(args) {
+    this.notify(Event.ON_CONNECTING, args);
   }
 
-  void _disconnectFromFrontend() {
-    this._isConnectionReady = false;
-    if (this._completer.isCompleted) {
-      this._completer = Completer();
-    } else {
-      logger.i("Completer isn't completed still");
-    }
-    if (this._connection == null) {
-      return;
-    }
-    this._connection!
-      ..removeListener(Event.ON_CONNECTED, this._onConnectedToFrontend)
-      ..removeListener(
-          Event.error(Code.FAILED_TO_CONNECT), this._onConnectToFrontendFailed)
-      ..removeListener(Event.ON_DISCONNECTED, this._onDisconnectedFromFrontend);
-    this._connection!.close();
-    this._connection = null;
-  }
-
-  void _onConnectedToFrontend([_]) {
-    this._isConnectionReady = true;
+  @override
+  onConnected(args) {
     this._failedToConnect = false;
-    if (!this._completer.isCompleted) {
-      this._completer.complete();
-    } else {
-      logger.w('Already completed as done');
-    }
     this._renewAllPullTasks();
+    this.notify(Event.ON_CONNECTED, args);
   }
 
-  void _onConnectToFrontendFailed([_]) {
-    this._failedToConnect = true;
+  @override
+  onDisconnecting(args) {
+    this.notify(Event.ON_DISCONNECTING, args);
   }
 
-  void _onDisconnectedFromFrontend([_]) {
-    this._isConnectionReady = false;
-    this._disconnectFromFrontend();
+  @override
+  onDisconnected(args) {
     this._cancelAllPullTasks();
-    if (this._shouldRun) {
-      Timer(Duration(seconds: 1), () => this._connectToFrontend());
-    }
+    this.notify(Event.ON_DISCONNECTED, args);
   }
 
-  Future<void> _getConnectionReady() {
-    return this._completer.future.timeout(5.seconds);
+  @override
+  onError(args) {
+    if (args[0] == ErrorCode.FAILED_TO_CONNECT) {
+      this._failedToConnect = true;
+    }
+    this.notify(Event.ON_ERROR, args);
   }
+
+  //===========================================
+  // internal functions
+  //===========================================
 
   Future<String> _pickEndpoint() async {
-    if (!this._options.masterEnabled) {
-      return Future.value(this._nextEndpoint());
-    }
     return await this
         ._master
         .pickFrontend(force: this._failedToConnect)
         .timeout(5.seconds);
   }
 
-  String _nextEndpoint() {
-    this._endpoint_index += 1;
-    if (this._endpoint_index >= this._endpoints.length) {
-      this._endpoint_index = 0;
+  bool _isValidSubscription(topic) {
+    if (this._progressManager.contains(topic) &&
+        this._queues.containsKey(topic) &&
+        this._callbacks.containsKey(topic)) {
+      return true;
+    } else {
+      return false;
     }
-    return this._endpoints[this._endpoint_index];
   }
 
   void _renewAllPullTasks() {
+    this._cancelAllPullTasks();
     for (var entry in this._progressManager.progresses.entries) {
       this._newPullTask(entry.key, entry.value);
     }
@@ -203,36 +176,36 @@ class Frontend {
     var queue = this._queues[topic]!;
     if (queue.isFull()) {
       logger.w('Queue is full(${queue.size()}), waiting for consuming...');
-      Timer(1.seconds, () => this._newPullTask(topic, offset));
+      this._newPullTimer(1.seconds, topic, offset);
       this._callbacks[topic]!(offset - 1);
       return;
     }
-    if (this._connection == null) {
-      logger.d('Lost connection, waiting for reconnecting...');
-      Timer(1.seconds, () => this._newPullTask(topic, offset));
-      return;
-    }
     this._pullTasks[topic] = CancelableOperation.fromFuture(this
-        ._connection!
+        ._connection
         .send(this._createPullReq(topic, offset), 5.seconds)
         .then((value) {
       if (!this._isValidSubscription(topic)) {
         return;
       }
-      queue.put((value as pull_rep_t).msgs);
+      var msgs = (value as pull_rep_t).msgs;
+      if (msgs.isEmpty) {
+        logger.i('No msgs pulled: topic: ${topic}, offset: ${offset}');
+        this._newPullTimer(this._options.pullInterval, topic, offset);
+        return;
+      }
+      queue.put(msgs);
       var lastOffset = queue.lastOffset();
       var nextOffset = lastOffset + 1;
       this._progressManager[topic] = nextOffset;
-      Timer(this._options.pullInterval,
-          () => this._newPullTask(topic, nextOffset));
+      this._newPullTimer(this._options.pullInterval, topic, nextOffset);
       this._callbacks[topic]!(lastOffset);
     }).catchError((e, s) {
       if (e is TimeoutException) {
         logger.d('Timeout occured: reason: $e, stack: $s, will pull again...');
-        Timer(0.milliseconds, () => this._newPullTask(topic, offset));
+        this._newPullTimer(0.seconds, topic, offset);
       } else {
         logger.e('Error occured: reason: $e, stack: $s, will pull again...');
-        Timer(1.seconds, () => this._newPullTask(topic, offset));
+        this._newPullTimer(1.seconds, topic, offset);
       }
     }));
   }
@@ -242,6 +215,7 @@ class Frontend {
       task.cancel();
     }
     this._pullTasks.clear();
+    this._cancelAllPullTimers();
   }
 
   void _cancelPullTask(topic) {
@@ -249,6 +223,29 @@ class Frontend {
     if (task != null) {
       task.cancel();
       this._pullTasks.remove(topic);
+      this._cancelPullTimer(topic);
+    }
+  }
+
+  void _newPullTimer(Duration duration, topic, offset) {
+    this._cancelPullTimer(topic);
+    this._pullTimers[topic] = Timer(duration, () {
+      this._newPullTask(topic, offset);
+    });
+  }
+
+  void _cancelAllPullTimers() {
+    for (var timer in this._pullTimers.values) {
+      timer.cancel();
+    }
+    this._pullTimers.clear();
+  }
+
+  void _cancelPullTimer(topic) {
+    var timer = this._pullTimers[topic];
+    if (timer != null) {
+      timer.cancel();
+      this._pullTimers.remove(topic);
     }
   }
 
@@ -272,15 +269,5 @@ class Frontend {
       ..path = path
       ..payload = jsonEncode(payload != null ? payload : {})
       ..header = header;
-  }
-
-  bool _isValidSubscription(topic) {
-    if (this._progressManager.contains(topic) &&
-        this._queues.containsKey(topic) &&
-        this._callbacks.containsKey(topic)) {
-      return true;
-    } else {
-      return false;
-    }
   }
 }

@@ -403,22 +403,13 @@ packages:
     source: hosted
     version: "1.1.0"
   web_socket_channel:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: web_socket_channel
       sha256: d88238e5eac9a42bb43ca4e721edba3c08c6354d4a53063afaa568516217621b
       url: "https://pub.dev"
     source: hosted
     version: "2.4.0"
-  web_socket_channel2:
-    dependency: "direct main"
-    description:
-      path: "."
-      ref: "v2.2.0+fork.2"
-      resolved-ref: be4c3661d4c4aaeb32cdf61a975a48572930139f
-      url: "https://github.com/xuchaoqian/web_socket_channel2.git"
-    source: git
-    version: "2.2.0"
   webkit_inspection_protocol:
     dependency: transitive
     description:

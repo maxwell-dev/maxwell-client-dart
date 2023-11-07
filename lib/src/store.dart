@@ -5,9 +5,9 @@ abstract class Store {
 }
 
 class DefaultStore implements Store {
-  Map<String, dynamic> _map = new Map();
+  Map<String, dynamic> _map = Map();
 
-  DefaultStore() {}
+  DefaultStore();
 
   @override
   dynamic get(String key) {

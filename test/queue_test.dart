@@ -1,9 +1,6 @@
-import 'package:logger/logger.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:test/test.dart';
 import 'package:maxwell_client/maxwell_client.dart';
-
-final logger = Logger();
 
 void main() {
   test("all", () {

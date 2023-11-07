@@ -1,10 +1,9 @@
-import 'package:maxwell_client/maxwell_client.dart';
 import 'package:tuple/tuple.dart';
-import './logger.dart';
+import './internal.dart';
 
 typedef OnEvent = void Function([dynamic result]);
 
-mixin Listenable {
+class Listenable {
   Map<Event, List<OnEvent>> _listeners = Map();
   List<Tuple3> _pendingListeners = [];
   bool _isInIteration = false;

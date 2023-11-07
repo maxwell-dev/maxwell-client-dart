@@ -1,8 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:http/http.dart' as http;
-import './store.dart';
-import './logger.dart';
+import './internal.dart';
 
 const CACHE_KEY = 'maxwell-client.frontend-endpoints';
 const CACHE_TTL = 60 * 60 * 24;

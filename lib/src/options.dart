@@ -5,28 +5,26 @@ class Options {
   Duration waitOpenTimeout;
   Duration reconnectDelay;
   Duration heartbeatInterval;
-  Duration defaultRoundTimeout;
+  Duration roundTimeout;
   Duration pullInterval;
-  int defaultOffset;
-  int getLimit;
+  int pullLimit;
   int queueCapacity;
   bool sslEnabled;
   Level logLevel;
-  bool debugRoundEnabled;
+  bool roundDebugEnabled;
   Store? store;
 
   Options(
       {this.waitOpenTimeout = const Duration(milliseconds: 5000),
       this.reconnectDelay = const Duration(milliseconds: 2000),
       this.heartbeatInterval = const Duration(milliseconds: 10000),
-      this.defaultRoundTimeout = const Duration(milliseconds: 5000),
+      this.roundTimeout = const Duration(milliseconds: 5000),
       this.pullInterval = const Duration(milliseconds: 200),
-      this.defaultOffset = -60,
-      this.getLimit = 128,
+      this.pullLimit = 128,
       this.queueCapacity = 512,
       this.sslEnabled = false,
       this.logLevel = Level.info,
-      this.debugRoundEnabled = false,
+      this.roundDebugEnabled = false,
       this.store}) {
     if (this.store == null) {
       this.store = new DefaultStore();

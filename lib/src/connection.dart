@@ -112,7 +112,7 @@ class Connection with Listenable {
     msg.set_ref(ref);
 
     if (timeout == null) {
-      timeout = this._options.defaultRoundTimeout;
+      timeout = this._options.roundTimeout;
     }
 
     var completer = Completer<GeneratedMessage>();
@@ -153,7 +153,7 @@ class Connection with Listenable {
       return;
     }
 
-    if (this._options.debugRoundEnabled) {
+    if (this._options.roundDebugEnabled) {
       logger.d('Received msg: $msg');
     }
 
@@ -281,7 +281,7 @@ class Connection with Listenable {
   }
 
   void _send(msg) {
-    if (this._options.debugRoundEnabled) {
+    if (this._options.roundDebugEnabled) {
       logger.d('Sending msg: ${msg.toProto3Json()}');
     }
 

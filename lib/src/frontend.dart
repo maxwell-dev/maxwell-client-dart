@@ -80,7 +80,7 @@ class Frontend with Listenable implements EventHandler {
     this._progressManager.remove(topic);
   }
 
-  List<msg_t> consume(topic, [offset = 0, limit = 32]) {
+  List<msg_t> consume(topic, [offset = 0, limit = 128]) {
     var queue = this._queues[topic];
     if (queue == null) {
       return [];
@@ -253,7 +253,7 @@ class Frontend with Listenable implements EventHandler {
     return pull_req_t()
       ..topic = topic
       ..offset = Int64(offset)
-      ..limit = this._options.getLimit;
+      ..limit = this._options.pullLimit;
   }
 
   req_req_t _createReqReq(String path, dynamic payload, [Headers? headers]) {

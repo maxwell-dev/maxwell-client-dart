@@ -21,3 +21,9 @@ endif
 	rm -rf coverage/html
 	genhtml coverage/lcov.info -o coverage/html
 	open coverage/html/src/lib/src/index.html
+
+publish:
+	dart pub publish
+
+clean:
+	rm -f pubspec.lock .packages

@@ -1,13 +1,7 @@
 name: maxwell_client
-version: 0.8.1
+version: 0.8.2
 description: A maxwell client for dart.
 repository: https://github.com/maxwell-dev/maxwell-client-dart.git
-platforms:
-  android:
-  ios:
-  linux:
-  macos:
-  windows:
 
 environment:
   sdk: ">=2.13.0 <4.0.0"

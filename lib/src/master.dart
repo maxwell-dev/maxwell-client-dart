@@ -7,11 +7,13 @@ const CACHE_KEY = 'maxwell-client.frontend-endpoints';
 const CACHE_TTL = 60 * 60 * 24;
 
 class Master {
+  bool _sslEnabled = false;
   List<String> _endpoints;
   int _endpoint_index = -1;
   late Store _store;
 
   Master(endpoints, options) : _endpoints = endpoints {
+    this._sslEnabled = options.sslEnabled;
     this._initEndpointIndex();
     this._store = options.store!;
   }
@@ -45,12 +47,13 @@ class Master {
   }
 
   Future<dynamic> _request(String path) async {
-    var url = Uri.http(this._nextEndpoint(), path);
+    var url = this._sslEnabled
+        ? Uri.https(this._nextEndpoint(), path)
+        : Uri.http(this._nextEndpoint(), path);
     logger.i('Requesting master: $url');
     var response = await http.get(url);
     if (response.statusCode != 200) {
-      throw new Exception(
-          'Failed to request master: url: $url, status: ${response.statusCode}');
+      throw new Exception('Failed to request master: url: $url, status: ${response.statusCode}');
     }
     var rep = jsonDecode(response.body);
     logger.i('Successfully to request master: rep: $rep');

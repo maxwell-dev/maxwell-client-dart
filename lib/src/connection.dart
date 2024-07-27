@@ -86,9 +86,10 @@ class Connection with Listenable {
 
   void close() {
     this._shouldRun = false;
+    this._stopRepeatSendHeartbeat();
     this._stopReconnect();
     this._disconnect();
-    this._closeChannel();
+    this._completers.clear();
   }
 
   String endpoint() {
@@ -106,8 +107,7 @@ class Connection with Listenable {
     return this._channel.ready.then((value) => this).timeout(timeout);
   }
 
-  Future<GeneratedMessage> send(GeneratedMessage msg,
-      [Duration? timeout = null]) {
+  Future<GeneratedMessage> send(GeneratedMessage msg, [Duration? timeout = null]) {
     var ref = this._newRef();
     msg.set_ref(ref);
 
@@ -118,13 +118,7 @@ class Connection with Listenable {
     var completer = Completer<GeneratedMessage>();
     this._completers[ref] = completer;
 
-    try {
-      this._send(msg);
-    } catch (e) {
-      completer.completeError(e);
-    }
-
-    return completer.future.whenComplete(() {
+    var replyFuture = completer.future.whenComplete(() {
       this._completers.remove(ref);
     }).timeout(timeout, onTimeout: () {
       var e = TimeoutException('msg: ${msg.toProto3Json()}', timeout);
@@ -132,6 +126,40 @@ class Connection with Listenable {
       completer.completeError(e);
       return completer.future;
     });
+
+    try {
+      this.doSend(msg);
+    } catch (e) {
+      completer.completeError(e);
+    }
+
+    return replyFuture;
+  }
+
+  void doSend(msg) {
+    if (this._options.roundDebugEnabled) {
+      logger.d('Sending msg: ${msg.toProto3Json()}');
+    }
+
+    var encodedMsg = null;
+    try {
+      encodedMsg = encode_msg(msg);
+    } catch (e, s) {
+      logger.e('Failed to encode msg: reason: $e, stack: $s');
+      tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_ENCODE, e, this]));
+      this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_ENCODE, e, this]);
+      throw new Exception('Failed to encode msg: reason: $e');
+    }
+
+    try {
+      this._channel.sink.add(encodedMsg);
+      this._sentAt = DateTime.now();
+    } catch (e, s) {
+      logger.e('Failed to send msg: reason: $e, stack: $s');
+      tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_SEND, e, this]));
+      this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_SEND, e, this]);
+      throw new Exception('Failed to send msg: reason: $e');
+    }
   }
 
   //===========================================
@@ -144,12 +172,8 @@ class Connection with Listenable {
       msg = decode_msg(data);
     } catch (e, s) {
       logger.e('Failed to decode msg: reason: $e, stack: $s');
-      this._eventHandler.onError([ErrorCode.FAILED_TO_DECODE, e, this]);
+      tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_DECODE, e, this]));
       this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_DECODE, e, this]);
-      return;
-    }
-
-    if (msg is ping_req_t) {
       return;
     }
 
@@ -157,8 +181,11 @@ class Connection with Listenable {
       logger.d('Received msg: $msg');
     }
 
-    var ref = msg.get_ref();
+    if (msg is ping_rep_t) {
+      return;
+    }
 
+    var ref = msg.get_ref();
     var completer = this._completers[ref];
     if (completer == null) {
       return;
@@ -173,7 +200,7 @@ class Connection with Listenable {
       }
     } catch (e, s) {
       logger.e('Failed to receive msg: reason: $e, stack: $s');
-      this._eventHandler.onError([ErrorCode.FAILED_TO_RECEIVE, e, this]);
+      tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_RECEIVE, e, this]));
       this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_RECEIVE, e, this]);
     } finally {
       this._completers.remove(ref);
@@ -185,8 +212,9 @@ class Connection with Listenable {
     try {
       this._isOpen = false;
       this._stopRepeatSendHeartbeat();
-      this._closeChannel();
-      this._eventHandler.onDisconnected([this]);
+      this._stopReconnect();
+      this._closeChannel('Stream closed');
+      tryWith(() => this._eventHandler.onDisconnected([this]));
       this.notify(Event.ON_DISCONNECTED, [this]);
     } finally {
       this._reconnect();
@@ -195,7 +223,7 @@ class Connection with Listenable {
 
   void onError(error) {
     logger.e('Error occured: ${error}');
-    this._eventHandler.onError([ErrorCode.OPAQUE_ERROR, error, this]);
+    tryWith(() => this._eventHandler.onError([ErrorCode.OPAQUE_ERROR, error, this]));
     this.notify(Event.ON_ERROR, [ErrorCode.OPAQUE_ERROR, error, this]);
   }
 
@@ -205,35 +233,40 @@ class Connection with Listenable {
 
   void _connect() {
     logger.i('Connecting: endpoint: ${this._endpoint}');
-    this._eventHandler.onConnecting([this]);
+    tryWith(() => this._eventHandler.onConnecting([this]));
     this.notify(Event.ON_CONNECTING, [this]);
     var channel = IOWebSocketChannel.connect(this._buildUri());
-    channel.stream
-        .listen(this.onData, onError: this.onError, onDone: this.onDone);
+    channel.stream.listen(this.onData, onError: this.onError, onDone: this.onDone);
     channel.ready.then((_) {
       logger.i('Connected: endpoint: ${this._endpoint}');
       this._isOpen = true;
       this._repeatSendHeartbeat();
-      this._eventHandler.onConnected([this]);
+      tryWith(() => this._eventHandler.onConnected([this]));
       this.notify(Event.ON_CONNECTED, [this]);
     }, onError: (e) {
       logger.e('Failed to connect: endpoint: ${this._endpoint}, error: $e');
       this._isOpen = false;
-      this._eventHandler.onError([ErrorCode.FAILED_TO_CONNECT, e, this]);
+      tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_CONNECT, e, this]));
       this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_CONNECT, e, this]);
     });
     this._channel = channel;
   }
 
   void _disconnect() {
-    logger.i('Disconnecting: endpoint: ${this._endpoint}');
-    this._eventHandler.onDisconnecting([this]);
-    this.notify(Event.ON_DISCONNECTING, [this]);
-    this._closeChannel();
+    if (this._isOpen) {
+      logger.i('Disconnecting: endpoint: ${this._endpoint}');
+      tryWith(() => this._eventHandler.onDisconnecting([this]));
+      this.notify(Event.ON_DISCONNECTING, [this]);
+    } else {
+      logger.i('Disconnect again to close all resources: endpoint: ${this._endpoint}');
+    }
+    this._closeChannel('Disconnect connection');
   }
 
-  void _closeChannel() {
-    this._channel.sink.close().then((_) {});
+  void _closeChannel(String? reason) {
+    this._channel.sink.close(10000, reason ?? '').whenComplete(() {
+      logger.d('Channel closed: reason: $reason, endpoint: ${this._endpoint}');
+    });
   }
 
   void _reconnect() {
@@ -255,8 +288,8 @@ class Connection with Listenable {
     if (!this._shouldRun) {
       return;
     }
-    this._heartbeatTimer =
-        Timer.periodic(this._options.heartbeatInterval, (Timer timer) {
+    this._stopRepeatSendHeartbeat();
+    this._heartbeatTimer = Timer.periodic(this._options.heartbeatInterval, (Timer timer) {
       this._sendHeartbeat();
     });
   }
@@ -270,40 +303,16 @@ class Connection with Listenable {
 
   void _sendHeartbeat() {
     if (this.isOpen() && !this._hasSentHeartbeat()) {
-      this._send(ping_req_t());
+      try {
+        this.doSend(ping_req_t());
+      } catch (e, s) {
+        logger.e('Failed to send heartbeat: reason: $e, stack: $s');
+      }
     }
   }
 
   bool _hasSentHeartbeat() {
-    return DateTime.now()
-        .subtract(this._options.heartbeatInterval)
-        .isBefore(_sentAt);
-  }
-
-  void _send(msg) {
-    if (this._options.roundDebugEnabled) {
-      logger.d('Sending msg: ${msg.toProto3Json()}');
-    }
-
-    var encodedMsg = null;
-    try {
-      encodedMsg = encode_msg(msg);
-    } catch (e, s) {
-      logger.e('Failed to encode msg: reason: $e, stack: $s');
-      this._eventHandler.onError([ErrorCode.FAILED_TO_ENCODE, e, this]);
-      this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_ENCODE, e, this]);
-      throw new Exception('Failed to encode msg: reason: $e');
-    }
-
-    try {
-      this._channel.sink.add(encodedMsg);
-      this._sentAt = DateTime.now();
-    } catch (e, s) {
-      logger.e('Failed to send msg: reason: $e, stack: $s');
-      this._eventHandler.onError([ErrorCode.FAILED_TO_SEND, e, this]);
-      this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_SEND, e, this]);
-      throw new Exception('Failed to send msg: reason: $e');
-    }
+    return DateTime.now().subtract(this._options.heartbeatInterval).isBefore(_sentAt);
   }
 
   int _newRef() {
@@ -316,11 +325,7 @@ class Connection with Listenable {
   Uri _buildUri() {
     var parts = this._endpoint.split(':');
     var scheme = this._options.sslEnabled ? 'wss' : 'ws';
-    return Uri(
-        scheme: scheme,
-        host: parts[0],
-        port: int.parse(parts[1]),
-        path: '\$ws');
+    return Uri(scheme: scheme, host: parts[0], port: int.parse(parts[1]), path: '\$ws');
   }
 }
 
@@ -350,8 +355,7 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
   close() {
     this._shouldRun = false;
     this._stopReconnect();
-    this._connectTask.cancel();
-    this._connection?.close();
+    this._disconnect();
   }
 
   String? endpoint() {
@@ -369,8 +373,7 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
     return this._readyCompleter.future.then((value) => this).timeout(timeout);
   }
 
-  Future<GeneratedMessage> send(GeneratedMessage msg,
-      [Duration? timeout = null]) {
+  Future<GeneratedMessage> send(GeneratedMessage msg, [Duration? timeout = null]) {
     return this._connection!.send(msg, timeout);
   }
 
@@ -380,26 +383,25 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
 
   @override
   onConnecting(args) {
-    this._eventHandler.onConnecting(args);
+    tryWith(() => this._eventHandler.onConnecting(args));
     this.notify(Event.ON_CONNECTING, args);
   }
 
   @override
   onConnected(args) {
-    if (this._oldReadyCompleter != null &&
-        !this._oldReadyCompleter!.isCompleted) {
+    if (this._oldReadyCompleter != null && !this._oldReadyCompleter!.isCompleted) {
       this._oldReadyCompleter!.complete(this);
     }
     if (!this._readyCompleter.isCompleted) {
       this._readyCompleter.complete(this);
     }
-    this._eventHandler.onConnected(args);
+    tryWith(() => this._eventHandler.onConnected(args));
     this.notify(Event.ON_CONNECTED, args);
   }
 
   @override
   onDisconnecting(args) {
-    this._eventHandler.onDisconnecting(args);
+    tryWith(() => this._eventHandler.onDisconnecting(args));
     this.notify(Event.ON_DISCONNECTING, args);
   }
 
@@ -407,15 +409,16 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
   onDisconnected(args) {
     this._oldReadyCompleter = this._readyCompleter;
     this._readyCompleter = Completer();
-    this._reconnect();
-    this._eventHandler.onDisconnected(args);
+    tryWith(() => this._eventHandler.onDisconnected(args));
     this.notify(Event.ON_DISCONNECTED, args);
+    this._disconnect();
+    this._reconnect();
   }
 
   @override
   onError(args) {
-    logger.e('onError: endpoint: ${this._connection!.endpoint()}');
-    this._eventHandler.onError(args);
+    logger.e('onError: reason: ${args}, endpoint: ${this._connection!.endpoint()}');
+    tryWith(() => this._eventHandler.onError(args));
     this.notify(Event.ON_ERROR, args);
   }
 
@@ -424,24 +427,27 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
   //===========================================
 
   _connect() {
-    this._connectTask =
-        CancelableOperation.fromFuture(this._pickEndpoint().then((endpiont) {
+    this._connectTask = CancelableOperation.fromFuture(this._pickEndpoint().then((endpiont) {
       if (!this._shouldRun) {
         return;
       }
-      this._connection =
-          new Connection(endpiont, this._options, eventHandler: this);
+      this._connection = new Connection(endpiont, this._options, eventHandler: this);
     }).catchError((reason) {
       logger.e('Failed to pick endpoint: ${reason}');
+      this._disconnect();
       this._reconnect();
     }));
+  }
+
+  _disconnect() {
+    this._connectTask.cancel();
+    this._connection?.close();
   }
 
   _reconnect() {
     if (!this._shouldRun) {
       return;
     }
-    this._connection?.close();
     this._stopReconnect();
     this._reconnectTimer = Timer(this._options.reconnectDelay, this._connect);
   }
@@ -451,5 +457,14 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
       this._reconnectTimer!.cancel();
       this._reconnectTimer = null;
     }
+  }
+}
+
+typedef Callback = void Function();
+tryWith(Callback callback) {
+  try {
+    callback();
+  } catch (e, s) {
+    logger.e('Failed to execute: reason: $e, stack: $s');
   }
 }

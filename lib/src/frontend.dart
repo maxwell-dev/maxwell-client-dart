@@ -31,8 +31,7 @@ class Frontend with Listenable implements EventHandler {
   Frontend(master, options)
       : _master = master,
         _options = options {
-    this._connection = MultiAltEndpointsConnection(this._pickEndpoint, options,
-        eventHandler: this);
+    this._connection = MultiAltEndpointsConnection(this._pickEndpoint, options, eventHandler: this);
   }
 
   void suspend() {
@@ -100,9 +99,16 @@ class Frontend with Listenable implements EventHandler {
       Duration? roundTimeout}) async {
     var msg = this._createReqReq(path, payload, headers);
     await this._connection.waitOpen(waitOpenTimeout);
-    req_rep_t result =
-        await this._connection.send(msg, roundTimeout) as req_rep_t;
+    req_rep_t result = await this._connection.send(msg, roundTimeout) as req_rep_t;
     return jsonDecode(result.payload);
+  }
+
+  dynamic waitOpen([Duration? timeout = null]) async {
+    return await this._connection.waitOpen(timeout);
+  }
+
+  bool isOpen() {
+    return this._connection.isOpen();
   }
 
   //===========================================
@@ -145,10 +151,7 @@ class Frontend with Listenable implements EventHandler {
   //===========================================
 
   Future<String> _pickEndpoint() async {
-    return await this
-        ._master
-        .pickFrontend(force: this._failedToConnect)
-        .timeout(5.seconds);
+    return await this._master.pickFrontend(force: this._failedToConnect).timeout(5.seconds);
   }
 
   bool _isValidSubscription(topic) {
@@ -180,10 +183,8 @@ class Frontend with Listenable implements EventHandler {
       this._callbacks[topic]!(offset - 1);
       return;
     }
-    this._pullTasks[topic] = CancelableOperation.fromFuture(this
-        ._connection
-        .send(this._createPullReq(topic, offset), 5.seconds)
-        .then((value) {
+    this._pullTasks[topic] = CancelableOperation.fromFuture(
+        this._connection.send(this._createPullReq(topic, offset), 5.seconds).then((value) {
       if (!this._isValidSubscription(topic)) {
         return;
       }

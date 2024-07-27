@@ -48,4 +48,12 @@ class Client {
         waitOpenTimeout: waitOpenTimeout,
         roundTimeout: roundTimeout);
   }
+
+  Future<void> waitOpen([Duration? timeout = null]) async {
+    await this._frontend.waitOpen(timeout);
+  }
+
+  bool isOpen() {
+    return this._frontend.isOpen();
+  }
 }

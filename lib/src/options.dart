@@ -17,7 +17,7 @@ class Options {
   Options(
       {this.waitOpenTimeout = const Duration(milliseconds: 5000),
       this.reconnectDelay = const Duration(milliseconds: 2000),
-      this.heartbeatInterval = const Duration(milliseconds: 10000),
+      this.heartbeatInterval = const Duration(milliseconds: 5000),
       this.roundTimeout = const Duration(milliseconds: 5000),
       this.pullInterval = const Duration(milliseconds: 200),
       this.pullLimit = 128,

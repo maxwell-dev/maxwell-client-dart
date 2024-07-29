@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:http/http.dart' as http;
@@ -11,6 +12,7 @@ class Master {
   List<String> _endpoints;
   int _endpoint_index = -1;
   late Store _store;
+  Completer<List>? _httpCompleter = null;
 
   Master(endpoints, options) : _endpoints = endpoints {
     this._sslEnabled = options.sslEnabled;
@@ -34,16 +36,28 @@ class Master {
         }
       }
     }
-    var rep = await this._request('/\$pick-frontends');
-    if (rep['code'] != 0) {
-      throw new Exception('Failed to pick frontends: ${rep.code}');
+    if (this._httpCompleter != null) {
+      return this._httpCompleter!.future;
     }
-    var endpoints = rep['endpoints']!;
-    if (endpoints.length == 0) {
-      throw new Exception('Failed to pick available frontends!');
+    this._httpCompleter = Completer();
+    var replyFuture = this._httpCompleter!.future;
+    try {
+      var rep = await this._request('/\$pick-frontends');
+      if (rep['code'] != 0) {
+        throw new Exception('Failed to pick frontends: ${rep.code}');
+      }
+      var endpoints = rep['endpoints']!;
+      if (endpoints.length == 0) {
+        throw new Exception('Failed to pick available frontends!');
+      }
+      this._store.set(CACHE_KEY, {'ts': this._now(), 'endpoints': endpoints});
+      this._httpCompleter!.complete(endpoints);
+    } catch (e, s) {
+      this._httpCompleter!.completeError(e, s);
+    } finally {
+      this._httpCompleter = null;
     }
-    this._store.set(CACHE_KEY, {'ts': this._now(), 'endpoints': endpoints});
-    return endpoints;
+    return replyFuture;
   }
 
   Future<dynamic> _request(String path) async {

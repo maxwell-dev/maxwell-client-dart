@@ -54,10 +54,8 @@ void main() async {
         expect(error, TypeMatcher<ServiceError>());
         var error2 = error as ServiceError;
         expect(error2.code, equals(299));
-        expect(
-            error2.desc,
-            equals(
-                'Failed to get connetion: err: Failed to find endpoint: path: "/hello2"'));
+        expect(error2.desc,
+            equals('Failed to get connetion: err: Failed to find endpoint: path: "/hello2"'));
       } finally {
         conn.close();
       }
@@ -98,14 +96,13 @@ void main() async {
 
   group("MultiAltEndpointsConnection", () {
     test("normal request", () async {
-      var conn = MultiAltEndpointsConnection(
-          () => Future.value("localhost:10000"), Options());
+      var conn = MultiAltEndpointsConnection(() => Future.value("localhost:10000"), Options());
       await conn.waitOpen(1.seconds);
       try {
         var req = req_req_t()
           ..path = "/hello"
           ..payload = "";
-        var rep = await conn.send(req, 5.seconds) as req_rep_t;
+        var rep = await conn.send(req, roundTimeout: 5.seconds) as req_rep_t;
         expect(jsonDecode(rep.payload), equals("world"));
       } catch (error) {
         logger.e(error.toString());
@@ -116,11 +113,10 @@ void main() async {
     });
 
     test("unknown msg", () async {
-      var conn = MultiAltEndpointsConnection(
-          () => Future.value("localhost:8081"), Options());
+      var conn = MultiAltEndpointsConnection(() => Future.value("localhost:8081"), Options());
       await conn.waitOpen(1.seconds);
       try {
-        await conn.send(auth_req_t()..token = "abc", 1.seconds);
+        await conn.send(auth_req_t()..token = "abc", roundTimeout: 1.seconds);
       } catch (error) {
         expect(error, TypeMatcher<ServiceError>());
         var error2 = error as ServiceError;
@@ -135,22 +131,19 @@ void main() async {
     });
 
     test("path not exist", () async {
-      var conn = MultiAltEndpointsConnection(
-          () => Future.value("localhost:10000"), Options());
+      var conn = MultiAltEndpointsConnection(() => Future.value("localhost:10000"), Options());
       await conn.waitOpen(1.seconds);
       try {
         var req = req_req_t()
           ..path = "/hello2"
           ..payload = "";
-        await conn.send(req, 1.seconds);
+        await conn.send(req, roundTimeout: 1.seconds);
       } catch (error) {
         expect(error, TypeMatcher<ServiceError>());
         var error2 = error as ServiceError;
         expect(error2.code, equals(299));
-        expect(
-            error2.desc,
-            equals(
-                'Failed to get connetion: err: Failed to find endpoint: path: "/hello2"'));
+        expect(error2.desc,
+            equals('Failed to get connetion: err: Failed to find endpoint: path: "/hello2"'));
       } finally {
         conn.close();
       }
@@ -159,8 +152,7 @@ void main() async {
     test("failed to connect", () async {
       var conn;
       try {
-        conn = MultiAltEndpointsConnection(
-            () => Future.value("localhost:1"), Options());
+        conn = MultiAltEndpointsConnection(() => Future.value("localhost:1"), Options());
       } catch (e) {
         throw new Exception("should not reach here");
       }
@@ -176,8 +168,7 @@ void main() async {
     });
 
     test("listen on connected event", () async {
-      var conn = MultiAltEndpointsConnection(
-          () => Future.value("localhost:10000"), Options());
+      var conn = MultiAltEndpointsConnection(() => Future.value("localhost:10000"), Options());
       try {
         var completer = Completer();
         conn.addListener(Event.ON_CONNECTED, ([_]) {

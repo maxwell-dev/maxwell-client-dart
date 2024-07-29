@@ -21,7 +21,7 @@ class Client {
     this._frontend.resume();
   }
 
-  close() {
+  void close() {
     this._frontend.close();
   }
 
@@ -47,13 +47,5 @@ class Client {
         headers: headers,
         waitOpenTimeout: waitOpenTimeout,
         roundTimeout: roundTimeout);
-  }
-
-  Future<void> waitOpen([Duration? timeout = null]) async {
-    await this._frontend.waitOpen(timeout);
-  }
-
-  bool isOpen() {
-    return this._frontend.isOpen();
   }
 }

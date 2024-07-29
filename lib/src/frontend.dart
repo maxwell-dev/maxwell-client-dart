@@ -25,13 +25,16 @@ class Frontend with Listenable implements EventHandler {
   Map<String, CancelableOperation<void>> _pullTasks = Map();
   Map<String, Timer> _pullTimers = Map();
 
-  late MultiAltEndpointsConnection _connection;
+  late MultiAltEndpointsConnection _pullConnection;
+  late ConnectionPool _requestConnections;
   bool _failedToConnect = false;
 
   Frontend(master, options)
       : _master = master,
         _options = options {
-    this._connection = MultiAltEndpointsConnection(this._pickEndpoint, options, eventHandler: this);
+    this._pullConnection =
+        MultiAltEndpointsConnection(this._pickEndpoint, options, eventHandler: this);
+    this._requestConnections = ConnectionPool(this._pickEndpoint, options, eventHandler: this);
   }
 
   void suspend() {
@@ -50,13 +53,13 @@ class Frontend with Listenable implements EventHandler {
     this._renewAllPullTasks();
   }
 
-  close() {
+  void close() {
     this._closed = true;
     this._cancelAllPullTasks();
     this._progressManager.clear();
     this._callbacks.clear();
     this._queues.clear();
-    this._connection.close();
+    this._pullConnection.close();
   }
 
   void subscribe(String topic, int offset, OnMsg callback) {
@@ -67,7 +70,7 @@ class Frontend with Listenable implements EventHandler {
     this._progressManager[topic] = offset;
     this._queues[topic] = Queue(this._options.queueCapacity);
     this._callbacks[topic] = callback;
-    if (this._connection.isOpen()) {
+    if (this._pullConnection.isOpen()) {
       this._newPullTask(topic, offset);
     }
   }
@@ -98,17 +101,9 @@ class Frontend with Listenable implements EventHandler {
       Duration? waitOpenTimeout,
       Duration? roundTimeout}) async {
     var msg = this._createReqReq(path, payload, headers);
-    await this._connection.waitOpen(waitOpenTimeout);
-    req_rep_t result = await this._connection.send(msg, roundTimeout) as req_rep_t;
+    req_rep_t result = await this._requestConnections.waitOpenAndSend(msg,
+        waitOpenTimeout: waitOpenTimeout, roundTimeout: roundTimeout) as req_rep_t;
     return jsonDecode(result.payload);
-  }
-
-  dynamic waitOpen([Duration? timeout = null]) async {
-    return await this._connection.waitOpen(timeout);
-  }
-
-  bool isOpen() {
-    return this._connection.isOpen();
   }
 
   //===========================================
@@ -116,30 +111,30 @@ class Frontend with Listenable implements EventHandler {
   //===========================================
 
   @override
-  onConnecting(args) {
+  void onConnecting(args) {
     this.notify(Event.ON_CONNECTING, args);
   }
 
   @override
-  onConnected(args) {
+  void onConnected(args) {
     this._failedToConnect = false;
     this._renewAllPullTasks();
     this.notify(Event.ON_CONNECTED, args);
   }
 
   @override
-  onDisconnecting(args) {
+  void onDisconnecting(args) {
     this.notify(Event.ON_DISCONNECTING, args);
   }
 
   @override
-  onDisconnected(args) {
+  void onDisconnected(args) {
     this._cancelAllPullTasks();
     this.notify(Event.ON_DISCONNECTED, args);
   }
 
   @override
-  onError(args) {
+  void onError(args) {
     if (args[0] == ErrorCode.FAILED_TO_CONNECT) {
       this._failedToConnect = true;
     }
@@ -183,8 +178,10 @@ class Frontend with Listenable implements EventHandler {
       this._callbacks[topic]!(offset - 1);
       return;
     }
-    this._pullTasks[topic] = CancelableOperation.fromFuture(
-        this._connection.send(this._createPullReq(topic, offset), 5.seconds).then((value) {
+    this._pullTasks[topic] = CancelableOperation.fromFuture(this
+        ._pullConnection
+        .send(this._createPullReq(topic, offset), roundTimeout: 5.seconds)
+        .then((value) {
       if (!this._isValidSubscription(topic)) {
         return;
       }

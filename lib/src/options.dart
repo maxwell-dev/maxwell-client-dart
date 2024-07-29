@@ -6,6 +6,9 @@ class Options {
   Duration reconnectDelay;
   Duration heartbeatInterval;
   Duration roundTimeout;
+  Duration idleTimeout;
+  int pollMinSize;
+  int pollMaxSize;
   Duration pullInterval;
   int pullLimit;
   int queueCapacity;
@@ -19,6 +22,9 @@ class Options {
       this.reconnectDelay = const Duration(milliseconds: 2000),
       this.heartbeatInterval = const Duration(milliseconds: 5000),
       this.roundTimeout = const Duration(milliseconds: 5000),
+      this.idleTimeout = const Duration(milliseconds: 30000),
+      this.pollMinSize = 1,
+      this.pollMaxSize = 3,
       this.pullInterval = const Duration(milliseconds: 200),
       this.pullLimit = 128,
       this.queueCapacity = 512,

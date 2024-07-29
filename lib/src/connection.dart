@@ -26,6 +26,7 @@ enum ErrorCode {
   FAILED_TO_DECODE,
   FAILED_TO_RECEIVE,
   FAILED_TO_CONNECT,
+  IDLE_TIMEOUT,
   OPAQUE_ERROR
 }
 
@@ -41,31 +42,46 @@ class ServiceError implements Exception {
 }
 
 abstract class EventHandler {
-  onConnecting(args);
-  onConnected(args);
-  onDisconnecting(args);
-  onDisconnected(args);
-  onError(args);
+  void onConnecting(List args);
+  void onConnected(List args);
+  void onDisconnecting(List args);
+  void onDisconnected(List args);
+  void onError(List args);
 }
 
 class DefaultEventHandler implements EventHandler {
   const DefaultEventHandler();
-  onConnecting(args) {}
-  onConnected(args) {}
-  onDisconnecting(args) {}
-  onDisconnected(args) {}
-  onError(args) {}
+  void onConnecting(List args) {}
+  void onConnected(List args) {}
+  void onDisconnecting(List args) {}
+  void onDisconnected(List args) {}
+  void onError(List args) {}
 }
 
+typedef TryWithCallback = void Function();
+void tryWith(TryWithCallback callback) {
+  try {
+    callback();
+  } catch (e, s) {
+    logger.e('Failed to execute: reason: $e, stack: $s');
+  }
+}
+
+int ID_SEED = 0;
+
 class Connection with Listenable {
+  int _id = ID_SEED++;
   String _endpoint;
   Options _options;
   EventHandler _eventHandler;
 
   bool _shouldRun = true;
   Timer? _reconnectTimer = null;
-  Timer? _heartbeatTimer = null;
-  DateTime _sentAt = DateTime.now();
+  Timer? _keepAliveTimer = null;
+  late DateTime _userMsgSentAt;
+  late DateTime _sentAt;
+  late DateTime _receivedAt;
+  bool _isHealthy = true;
   int _lastRef = 0;
 
   late IOWebSocketChannel _channel;
@@ -81,19 +97,27 @@ class Connection with Listenable {
       : _endpoint = endpoint,
         _options = options,
         _eventHandler = eventHandler {
+    var now = DateTime.now();
+    this._userMsgSentAt = now;
+    this._sentAt = now;
+    this._receivedAt = now;
     this._connect();
   }
 
   void close() {
     this._shouldRun = false;
-    this._stopRepeatSendHeartbeat();
+    this._stopKeepAlive();
     this._stopReconnect();
     this._disconnect();
-    this._completers.clear();
+    this._completeCompleters();
   }
 
   String endpoint() {
     return this._endpoint;
+  }
+
+  bool isHealthy() {
+    return this._isHealthy;
   }
 
   bool isOpen() {
@@ -105,6 +129,14 @@ class Connection with Listenable {
       timeout = this._options.waitOpenTimeout;
     }
     return this._channel.ready.then((value) => this).timeout(timeout);
+  }
+
+  Future<GeneratedMessage> waitOpenAndSend(GeneratedMessage msg,
+      {Duration? waitOpenTimeout = null, Duration? roundTimeout = null}) async {
+    if (!this._isOpen) {
+      await this.waitOpen(waitOpenTimeout);
+    }
+    return await this.send(msg, roundTimeout);
   }
 
   Future<GeneratedMessage> send(GeneratedMessage msg, [Duration? timeout = null]) {
@@ -121,8 +153,8 @@ class Connection with Listenable {
     var replyFuture = completer.future.whenComplete(() {
       this._completers.remove(ref);
     }).timeout(timeout, onTimeout: () {
-      var e = TimeoutException('msg: ${msg.toProto3Json()}', timeout);
-      logger.d(e);
+      var e = TimeoutException('<${this._id}>msg: ${msg.toProto3Json()}', timeout);
+      logger.d('<${this._id}>$e');
       completer.completeError(e);
       return completer.future;
     });
@@ -137,28 +169,33 @@ class Connection with Listenable {
   }
 
   void doSend(msg) {
+    var now = DateTime.now();
+    if (msg is! ping_req_t) {
+      this._userMsgSentAt = now;
+    }
+    this._sentAt = now;
+
     if (this._options.roundDebugEnabled) {
-      logger.d('Sending msg: ${msg.toProto3Json()}');
+      logger.d('<${this._id}>Sending msg: ${msg.toProto3Json()}');
     }
 
     var encodedMsg = null;
     try {
       encodedMsg = encode_msg(msg);
     } catch (e, s) {
-      logger.e('Failed to encode msg: reason: $e, stack: $s');
+      logger.e('<${this._id}>Failed to encode msg: reason: $e, stack: $s');
       tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_ENCODE, e, this]));
       this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_ENCODE, e, this]);
-      throw new Exception('Failed to encode msg: reason: $e');
+      throw new Exception('<${this._id}>Failed to encode msg: reason: $e');
     }
 
     try {
       this._channel.sink.add(encodedMsg);
-      this._sentAt = DateTime.now();
     } catch (e, s) {
-      logger.e('Failed to send msg: reason: $e, stack: $s');
+      logger.e('<${this._id}>Failed to send msg: reason: $e, stack: $s');
       tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_SEND, e, this]));
       this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_SEND, e, this]);
-      throw new Exception('Failed to send msg: reason: $e');
+      throw new Exception('<${this._id}>Failed to send msg: reason: $e');
     }
   }
 
@@ -167,18 +204,20 @@ class Connection with Listenable {
   //===========================================
 
   void onData(data) {
+    this._receivedAt = DateTime.now();
+
     GeneratedMessage msg;
     try {
       msg = decode_msg(data);
     } catch (e, s) {
-      logger.e('Failed to decode msg: reason: $e, stack: $s');
+      logger.e('<${this._id}>Failed to decode msg: reason: $e, stack: $s');
       tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_DECODE, e, this]));
       this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_DECODE, e, this]);
       return;
     }
 
     if (this._options.roundDebugEnabled) {
-      logger.d('Received msg: $msg');
+      logger.d('<${this._id}>Received msg: $msg');
     }
 
     if (msg is ping_rep_t) {
@@ -199,7 +238,7 @@ class Connection with Listenable {
         completer.complete(msg);
       }
     } catch (e, s) {
-      logger.e('Failed to receive msg: reason: $e, stack: $s');
+      logger.e('<${this._id}>Failed to receive msg: reason: $e, stack: $s');
       tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_RECEIVE, e, this]));
       this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_RECEIVE, e, this]);
     } finally {
@@ -208,10 +247,10 @@ class Connection with Listenable {
   }
 
   void onDone() {
-    logger.i('Disconnected: endpoint: ${this._endpoint}');
+    logger.i('<${this._id}>Disconnected: endpoint: ${this._endpoint}');
     try {
       this._isOpen = false;
-      this._stopRepeatSendHeartbeat();
+      this._stopKeepAlive();
       this._stopReconnect();
       this._closeChannel('Stream closed');
       tryWith(() => this._eventHandler.onDisconnected([this]));
@@ -222,7 +261,7 @@ class Connection with Listenable {
   }
 
   void onError(error) {
-    logger.e('Error occured: ${error}');
+    logger.e('<${this._id}>Error occured: ${error}');
     tryWith(() => this._eventHandler.onError([ErrorCode.OPAQUE_ERROR, error, this]));
     this.notify(Event.ON_ERROR, [ErrorCode.OPAQUE_ERROR, error, this]);
   }
@@ -232,19 +271,19 @@ class Connection with Listenable {
   //===========================================
 
   void _connect() {
-    logger.i('Connecting: endpoint: ${this._endpoint}');
+    logger.i('<${this._id}>Connecting: endpoint: ${this._endpoint}');
     tryWith(() => this._eventHandler.onConnecting([this]));
     this.notify(Event.ON_CONNECTING, [this]);
     var channel = IOWebSocketChannel.connect(this._buildUri());
     channel.stream.listen(this.onData, onError: this.onError, onDone: this.onDone);
     channel.ready.then((_) {
-      logger.i('Connected: endpoint: ${this._endpoint}');
+      logger.i('<${this._id}>Connected: endpoint: ${this._endpoint}');
       this._isOpen = true;
-      this._repeatSendHeartbeat();
+      this._keepAlive();
       tryWith(() => this._eventHandler.onConnected([this]));
       this.notify(Event.ON_CONNECTED, [this]);
     }, onError: (e) {
-      logger.e('Failed to connect: endpoint: ${this._endpoint}, error: $e');
+      logger.e('<${this._id}>Failed to connect: endpoint: ${this._endpoint}, error: $e');
       this._isOpen = false;
       tryWith(() => this._eventHandler.onError([ErrorCode.FAILED_TO_CONNECT, e, this]));
       this.notify(Event.ON_ERROR, [ErrorCode.FAILED_TO_CONNECT, e, this]);
@@ -254,19 +293,13 @@ class Connection with Listenable {
 
   void _disconnect() {
     if (this._isOpen) {
-      logger.i('Disconnecting: endpoint: ${this._endpoint}');
+      logger.i('<${this._id}>Disconnecting: endpoint: ${this._endpoint}');
       tryWith(() => this._eventHandler.onDisconnecting([this]));
       this.notify(Event.ON_DISCONNECTING, [this]);
     } else {
-      logger.i('Disconnect again to close all resources: endpoint: ${this._endpoint}');
+      logger.i('<${this._id}>Disconnect again to close the channel: endpoint: ${this._endpoint}');
     }
     this._closeChannel('Disconnect connection');
-  }
-
-  void _closeChannel(String? reason) {
-    this._channel.sink.close(10000, reason ?? '').whenComplete(() {
-      logger.d('Channel closed: reason: $reason, endpoint: ${this._endpoint}');
-    });
   }
 
   void _reconnect() {
@@ -284,35 +317,81 @@ class Connection with Listenable {
     }
   }
 
-  void _repeatSendHeartbeat() {
+  void _keepAlive() {
     if (!this._shouldRun) {
       return;
     }
-    this._stopRepeatSendHeartbeat();
-    this._heartbeatTimer = Timer.periodic(this._options.heartbeatInterval, (Timer timer) {
+    logger.d('<${this._id}>keep alive...');
+    var duration = this._calcDurationUntilNextHeartbeat();
+    if (duration <= Duration(seconds: 1)) {
       this._sendHeartbeat();
-    });
+      this._checkHealthy();
+      this._checkIdleTimeout();
+      duration = this._options.heartbeatInterval;
+    }
+    this._stopKeepAlive();
+    this._keepAliveTimer = Timer(duration, this._keepAlive);
   }
 
-  void _stopRepeatSendHeartbeat() {
-    if (this._heartbeatTimer != null) {
-      this._heartbeatTimer!.cancel();
-      this._heartbeatTimer = null;
+  void _stopKeepAlive() {
+    if (this._keepAliveTimer != null) {
+      this._keepAliveTimer!.cancel();
+      this._keepAliveTimer = null;
+    }
+  }
+
+  Duration _calcDurationUntilNextHeartbeat() {
+    var next = this._sentAt.add(this._options.heartbeatInterval);
+    var now = DateTime.now();
+    if (next.compareTo(now) <= 0) {
+      return Duration.zero;
+    } else {
+      return next.difference(now);
     }
   }
 
   void _sendHeartbeat() {
-    if (this.isOpen() && !this._hasSentHeartbeat()) {
-      try {
-        this.doSend(ping_req_t());
-      } catch (e, s) {
-        logger.e('Failed to send heartbeat: reason: $e, stack: $s');
-      }
+    try {
+      this.doSend(ping_req_t());
+    } catch (e, s) {
+      logger.w('<${this._id}>Failed to send heartbeat: reason: $e, stack: $s');
     }
   }
 
-  bool _hasSentHeartbeat() {
-    return DateTime.now().subtract(this._options.heartbeatInterval).isBefore(_sentAt);
+  void _checkHealthy() {
+    if (this._hasReceivedHeartbeat()) {
+      this._isHealthy = true;
+    } else {
+      this._isHealthy = false;
+      logger.w('<${this._id}>Connection is not healthy: endpoint: ${this._endpoint}');
+    }
+  }
+
+  bool _hasReceivedHeartbeat() {
+    var prev = DateTime.now().subtract(this._options.heartbeatInterval * 1.5);
+    return this._receivedAt.compareTo(prev) >= 0;
+  }
+
+  void _checkIdleTimeout() {
+    var now = DateTime.now();
+    if (now.difference(this._userMsgSentAt) >= this._options.idleTimeout) {
+      logger.w('<${this._id}>Idle timeout: endpoint: ${this._endpoint}');
+      tryWith(() => this._eventHandler.onError([ErrorCode.IDLE_TIMEOUT, 'Idle timeout', this]));
+      this.notify(Event.ON_ERROR, [ErrorCode.IDLE_TIMEOUT, 'Idle timeout', this]);
+    }
+  }
+
+  void _closeChannel(String? reason) {
+    this._channel.sink.close(10000, reason ?? '').whenComplete(() {
+      logger.d('<${this._id}>Channel closed: reason: $reason, endpoint: ${this._endpoint}');
+    });
+  }
+
+  void _completeCompleters() {
+    for (var completer in this._completers.values) {
+      completer.completeError('Disconnect connection');
+    }
+    this._completers.clear();
   }
 
   int _newRef() {
@@ -344,6 +423,10 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
   Completer _readyCompleter = Completer();
   Completer? _oldReadyCompleter = null;
 
+  //===========================================
+  // apis
+  //===========================================
+
   MultiAltEndpointsConnection(PickEndpoint pickEndpoint, Options options,
       {EventHandler eventHandler = const DefaultEventHandler()})
       : _pickEndpoint = pickEndpoint,
@@ -352,7 +435,7 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
     this._connect();
   }
 
-  close() {
+  void close() {
     this._shouldRun = false;
     this._stopReconnect();
     this._disconnect();
@@ -360,6 +443,10 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
 
   String? endpoint() {
     return this._connection?.endpoint();
+  }
+
+  bool isHealthy() {
+    return this._connection == null || this._connection!.isHealthy();
   }
 
   bool isOpen() {
@@ -373,8 +460,21 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
     return this._readyCompleter.future.then((value) => this).timeout(timeout);
   }
 
-  Future<GeneratedMessage> send(GeneratedMessage msg, [Duration? timeout = null]) {
-    return this._connection!.send(msg, timeout);
+  Future<GeneratedMessage> waitOpenAndSend(GeneratedMessage msg,
+      {Duration? waitOpenTimeout, Duration? roundTimeout}) async {
+    if (!this.isOpen()) {
+      logger.d('Msg sent before connection is ready, waiting...');
+      await this.waitOpen(waitOpenTimeout);
+    }
+    return await this._connection!.send(msg, roundTimeout);
+  }
+
+  Future<GeneratedMessage> send(GeneratedMessage msg,
+      {Duration? waitOpenTimeout, Duration? roundTimeout}) {
+    if (!this.isOpen()) {
+      throw new Exception('Connection is not ready');
+    }
+    return this._connection!.send(msg, roundTimeout);
   }
 
   //===========================================
@@ -382,13 +482,15 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
   //===========================================
 
   @override
-  onConnecting(args) {
+  void onConnecting(args) {
+    args[args.length - 1] = this;
     tryWith(() => this._eventHandler.onConnecting(args));
     this.notify(Event.ON_CONNECTING, args);
   }
 
   @override
-  onConnected(args) {
+  void onConnected(args) {
+    args[args.length - 1] = this;
     if (this._oldReadyCompleter != null && !this._oldReadyCompleter!.isCompleted) {
       this._oldReadyCompleter!.complete(this);
     }
@@ -400,13 +502,15 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
   }
 
   @override
-  onDisconnecting(args) {
+  void onDisconnecting(args) {
+    args[args.length - 1] = this;
     tryWith(() => this._eventHandler.onDisconnecting(args));
     this.notify(Event.ON_DISCONNECTING, args);
   }
 
   @override
-  onDisconnected(args) {
+  void onDisconnected(args) {
+    args[args.length - 1] = this;
     this._oldReadyCompleter = this._readyCompleter;
     this._readyCompleter = Completer();
     tryWith(() => this._eventHandler.onDisconnected(args));
@@ -416,8 +520,8 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
   }
 
   @override
-  onError(args) {
-    logger.e('onError: reason: ${args}, endpoint: ${this._connection!.endpoint()}');
+  void onError(args) {
+    args[args.length - 1] = this;
     tryWith(() => this._eventHandler.onError(args));
     this.notify(Event.ON_ERROR, args);
   }
@@ -426,7 +530,7 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
   // internal functions
   //===========================================
 
-  _connect() {
+  void _connect() {
     this._connectTask = CancelableOperation.fromFuture(this._pickEndpoint().then((endpiont) {
       if (!this._shouldRun) {
         return;
@@ -439,12 +543,12 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
     }));
   }
 
-  _disconnect() {
+  void _disconnect() {
     this._connectTask.cancel();
     this._connection?.close();
   }
 
-  _reconnect() {
+  void _reconnect() {
     if (!this._shouldRun) {
       return;
     }
@@ -452,7 +556,7 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
     this._reconnectTimer = Timer(this._options.reconnectDelay, this._connect);
   }
 
-  _stopReconnect() {
+  void _stopReconnect() {
     if (this._reconnectTimer != null) {
       this._reconnectTimer!.cancel();
       this._reconnectTimer = null;
@@ -460,11 +564,127 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
   }
 }
 
-typedef Callback = void Function();
-tryWith(Callback callback) {
-  try {
-    callback();
-  } catch (e, s) {
-    logger.e('Failed to execute: reason: $e, stack: $s');
+class ConnectionPool with Listenable implements EventHandler {
+  PickEndpoint _pickEndpoint;
+  Options _options;
+  EventHandler _eventHandler;
+
+  List<MultiAltEndpointsConnection> _connections = [];
+  int _indexSeed = 0;
+
+  //===========================================
+  // apis
+  //===========================================
+
+  ConnectionPool(PickEndpoint pickEndpoint, Options options,
+      {EventHandler eventHandler = const DefaultEventHandler()})
+      : _pickEndpoint = pickEndpoint,
+        _options = options,
+        _eventHandler = eventHandler {
+    for (var i = 0; i < this._options.pollMinSize; i++) {
+      this._connections.add(this._createConnection());
+    }
+  }
+
+  void close() {
+    for (var connection in this._connections) {
+      connection.close();
+    }
+  }
+
+  Future<GeneratedMessage> waitOpenAndSend(GeneratedMessage msg,
+      {Duration? waitOpenTimeout, Duration? roundTimeout}) async {
+    var connection = this._getConnection();
+    return await connection.waitOpenAndSend(msg,
+        waitOpenTimeout: waitOpenTimeout, roundTimeout: roundTimeout);
+  }
+
+  Future<GeneratedMessage> send(GeneratedMessage msg,
+      {Duration? waitOpenTimeout, Duration? roundTimeout}) async {
+    var connection = this._getConnection();
+    return await connection.send(msg, waitOpenTimeout: waitOpenTimeout, roundTimeout: roundTimeout);
+  }
+
+  //===========================================
+  // EventHandler implementation
+  //===========================================
+
+  @override
+  void onConnecting(args) {
+    tryWith(() => this._eventHandler.onConnecting(args));
+    this.notify(Event.ON_CONNECTING, args);
+  }
+
+  @override
+  void onConnected(args) {
+    tryWith(() => this._eventHandler.onConnected(args));
+    this.notify(Event.ON_CONNECTED, args);
+  }
+
+  @override
+  void onDisconnecting(args) {
+    tryWith(() => this._eventHandler.onDisconnecting(args));
+    this.notify(Event.ON_DISCONNECTING, args);
+  }
+
+  @override
+  void onDisconnected(args) {
+    tryWith(() => this._eventHandler.onDisconnected(args));
+    this.notify(Event.ON_DISCONNECTED, args);
+  }
+
+  @override
+  void onError(args) {
+    this._tryDropConnection(args[args.length - 1]);
+    tryWith(() => this._eventHandler.onError(args));
+    this.notify(Event.ON_ERROR, args);
+  }
+
+  //===========================================
+  // internal functions
+  //===========================================
+
+  MultiAltEndpointsConnection _createConnection() {
+    return new MultiAltEndpointsConnection(this._pickEndpoint, this._options, eventHandler: this);
+  }
+
+  void _tryDropConnection(MultiAltEndpointsConnection connection) {
+    if (this._connections.length <= this._options.pollMinSize) {
+      return;
+    }
+    this._connections.remove(connection);
+    connection.close();
+  }
+
+  MultiAltEndpointsConnection _getConnection() {
+    var index = this._nextIndex();
+    var len = this._connections.length;
+    for (var i = index; i < len; i++) {
+      if (this._connections[i].isHealthy()) {
+        return this._connections[i];
+      }
+    }
+    for (var i = 0; i < index; i++) {
+      if (this._connections[i].isHealthy()) {
+        return this._connections[i];
+      }
+    }
+
+    if (len < this._options.pollMaxSize) {
+      var connection = this._createConnection();
+      this._connections.add(connection);
+      return connection;
+    }
+
+    return this._connections[index];
+  }
+
+  int _nextIndex() {
+    if (this._indexSeed >= this._connections.length - 1) {
+      this._indexSeed = 0;
+    } else {
+      ++this._indexSeed;
+    }
+    return this._indexSeed;
   }
 }

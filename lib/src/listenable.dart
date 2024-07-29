@@ -35,11 +35,11 @@ class Listenable {
     callbacks.removeWhere((callback2) => callback2 == callback);
   }
 
-  clear() {
+  void clear() {
     this._listeners.clear();
   }
 
-  notify(Event event, [dynamic result = null]) {
+  void notify(Event event, [dynamic result = null]) {
     var callbacks = this._listeners[event];
     if (callbacks == null) {
       return;

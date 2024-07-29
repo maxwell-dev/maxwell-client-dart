@@ -64,11 +64,11 @@ class Queue {
     return result;
   }
 
-  size() {
+  int size() {
     return this._buffer.length;
   }
 
-  isFull() {
+  bool isFull() {
     return this._buffer.length == this._capacity;
   }
 
@@ -86,7 +86,7 @@ class Queue {
     return this._buffer[this._buffer.length - 1].offset.toInt();
   }
 
-  minIndexFrom(int offset) {
+  int minIndexFrom(int offset) {
     var index = -1;
     for (var i = 0; i < this._buffer.length; i++) {
       if (this._buffer[i].offset >= offset) {
@@ -97,7 +97,7 @@ class Queue {
     return index;
   }
 
-  maxIndexTo(int offset) {
+  int maxIndexTo(int offset) {
     var index = -1;
     for (var i = 0; i < this._buffer.length; i++) {
       if (this._buffer[i].offset > offset) {

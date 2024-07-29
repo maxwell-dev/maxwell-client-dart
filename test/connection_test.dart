@@ -102,7 +102,7 @@ void main() async {
         var req = req_req_t()
           ..path = "/hello"
           ..payload = "";
-        var rep = await conn.send(req, roundTimeout: 5.seconds) as req_rep_t;
+        var rep = await conn.send(req, 5.seconds) as req_rep_t;
         expect(jsonDecode(rep.payload), equals("world"));
       } catch (error) {
         logger.e(error.toString());
@@ -116,7 +116,7 @@ void main() async {
       var conn = MultiAltEndpointsConnection(() => Future.value("localhost:8081"), Options());
       await conn.waitOpen(1.seconds);
       try {
-        await conn.send(auth_req_t()..token = "abc", roundTimeout: 1.seconds);
+        await conn.send(auth_req_t()..token = "abc", 1.seconds);
       } catch (error) {
         expect(error, TypeMatcher<ServiceError>());
         var error2 = error as ServiceError;
@@ -137,7 +137,7 @@ void main() async {
         var req = req_req_t()
           ..path = "/hello2"
           ..payload = "";
-        await conn.send(req, roundTimeout: 1.seconds);
+        await conn.send(req, 1.seconds);
       } catch (error) {
         expect(error, TypeMatcher<ServiceError>());
         var error2 = error as ServiceError;

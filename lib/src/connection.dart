@@ -477,12 +477,11 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
     return await this._connection!.send(msg, roundTimeout);
   }
 
-  Future<GeneratedMessage> send(GeneratedMessage msg,
-      {Duration? waitOpenTimeout, Duration? roundTimeout}) {
+  Future<GeneratedMessage> send(GeneratedMessage msg, [Duration? timeout]) {
     if (!this.isOpen()) {
       throw new Exception('Connection is not ready');
     }
-    return this._connection!.send(msg, roundTimeout);
+    return this._connection!.send(msg, timeout);
   }
 
   //===========================================
@@ -601,17 +600,27 @@ class ConnectionPool with Listenable implements EventHandler {
     }
   }
 
-  Future<GeneratedMessage> waitOpenAndSend(GeneratedMessage msg,
-      {Duration? waitOpenTimeout, Duration? roundTimeout}) async {
-    var connection = this._getConnection();
-    return await connection.waitOpenAndSend(msg,
-        waitOpenTimeout: waitOpenTimeout, roundTimeout: roundTimeout);
-  }
+  MultiAltEndpointsConnection getConnection() {
+    var index = this._nextIndex();
+    var len = this._connections.length;
+    for (var i = index; i < len; i++) {
+      if (this._connections[i].isHealthy()) {
+        return this._connections[i];
+      }
+    }
+    for (var i = 0; i < index; i++) {
+      if (this._connections[i].isHealthy()) {
+        return this._connections[i];
+      }
+    }
 
-  Future<GeneratedMessage> send(GeneratedMessage msg,
-      {Duration? waitOpenTimeout, Duration? roundTimeout}) async {
-    var connection = this._getConnection();
-    return await connection.send(msg, waitOpenTimeout: waitOpenTimeout, roundTimeout: roundTimeout);
+    if (len < this._options.pollMaxSize) {
+      var connection = this._createConnection();
+      this._connections.add(connection);
+      return connection;
+    }
+
+    return this._connections[index];
   }
 
   //===========================================
@@ -671,29 +680,6 @@ class ConnectionPool with Listenable implements EventHandler {
     logger.i(
         '<${connection.id()}>Dropping connection: endpoint: ${connection.endpoint()}, old pool size: $oldLen, new pool size: $newLen');
     connection.close();
-  }
-
-  MultiAltEndpointsConnection _getConnection() {
-    var index = this._nextIndex();
-    var len = this._connections.length;
-    for (var i = index; i < len; i++) {
-      if (this._connections[i].isHealthy()) {
-        return this._connections[i];
-      }
-    }
-    for (var i = 0; i < index; i++) {
-      if (this._connections[i].isHealthy()) {
-        return this._connections[i];
-      }
-    }
-
-    if (len < this._options.pollMaxSize) {
-      var connection = this._createConnection();
-      this._connections.add(connection);
-      return connection;
-    }
-
-    return this._connections[index];
   }
 
   int _nextIndex() {

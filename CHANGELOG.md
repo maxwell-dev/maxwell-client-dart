@@ -2,6 +2,12 @@
 
 This project follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2024-07-29
+
+### Fixed
+
+- Use waitOpenAndSend() instead of send() to prevent throwing exception.
+
 ## [0.10.1] - 2024-07-29
 
 ### Chore

@@ -138,6 +138,7 @@ class Frontend with Listenable implements EventHandler {
     if (args[0] == ErrorCode.FAILED_TO_CONNECT) {
       this._failedToConnect = true;
     }
+    logger.d('<${args[args.length - 2].id()}>Error occured: ${args}, propagating up...');
     this.notify(Event.ON_ERROR, args);
   }
 

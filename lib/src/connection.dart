@@ -112,6 +112,10 @@ class Connection with Listenable {
     this._completeCompleters();
   }
 
+  int id() {
+    return this._id;
+  }
+
   String endpoint() {
     return this._endpoint;
   }
@@ -375,7 +379,7 @@ class Connection with Listenable {
   void _checkIdleTimeout() {
     var now = DateTime.now();
     if (now.difference(this._userMsgSentAt) >= this._options.idleTimeout) {
-      logger.w('<${this._id}>Idle timeout: endpoint: ${this._endpoint}');
+      logger.i('<${this._id}>Idle timeout: endpoint: ${this._endpoint}');
       tryWith(() => this._eventHandler.onError([ErrorCode.IDLE_TIMEOUT, 'Idle timeout', this]));
       this.notify(Event.ON_ERROR, [ErrorCode.IDLE_TIMEOUT, 'Idle timeout', this]);
     }
@@ -441,6 +445,10 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
     this._disconnect();
   }
 
+  int? id() {
+    return this._connection?.id();
+  }
+
   String? endpoint() {
     return this._connection?.endpoint();
   }
@@ -483,14 +491,14 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
 
   @override
   void onConnecting(args) {
-    args[args.length - 1] = this;
+    args.add(this);
     tryWith(() => this._eventHandler.onConnecting(args));
     this.notify(Event.ON_CONNECTING, args);
   }
 
   @override
   void onConnected(args) {
-    args[args.length - 1] = this;
+    args.add(this);
     if (this._oldReadyCompleter != null && !this._oldReadyCompleter!.isCompleted) {
       this._oldReadyCompleter!.complete(this);
     }
@@ -503,14 +511,14 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
 
   @override
   void onDisconnecting(args) {
-    args[args.length - 1] = this;
+    args.add(this);
     tryWith(() => this._eventHandler.onDisconnecting(args));
     this.notify(Event.ON_DISCONNECTING, args);
   }
 
   @override
   void onDisconnected(args) {
-    args[args.length - 1] = this;
+    args.add(this);
     this._oldReadyCompleter = this._readyCompleter;
     this._readyCompleter = Completer();
     tryWith(() => this._eventHandler.onDisconnected(args));
@@ -521,7 +529,8 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
 
   @override
   void onError(args) {
-    args[args.length - 1] = this;
+    args.add(this);
+    logger.d('<${args[args.length - 2].id()}>Error occured: ${args}, propagating up...');
     tryWith(() => this._eventHandler.onError(args));
     this.notify(Event.ON_ERROR, args);
   }
@@ -636,6 +645,7 @@ class ConnectionPool with Listenable implements EventHandler {
   @override
   void onError(args) {
     this._tryDropConnection(args[args.length - 1]);
+    logger.d('<${args[args.length - 2].id()}>Error occured: ${args}, propagating up...');
     tryWith(() => this._eventHandler.onError(args));
     this.notify(Event.ON_ERROR, args);
   }
@@ -649,10 +659,17 @@ class ConnectionPool with Listenable implements EventHandler {
   }
 
   void _tryDropConnection(MultiAltEndpointsConnection connection) {
-    if (this._connections.length <= this._options.pollMinSize) {
+    var oldLen = this._connections.length;
+    var minSize = this._options.pollMinSize;
+    if (oldLen <= minSize) {
+      logger.i(
+          '<${connection.id()}>No need to drop connection, since the pool size is already at min size: $minSize');
       return;
     }
     this._connections.remove(connection);
+    var newLen = this._connections.length;
+    logger.i(
+        '<${connection.id()}>Dropping connection: endpoint: ${connection.endpoint()}, old pool size: $oldLen, new pool size: $newLen');
     connection.close();
   }
 

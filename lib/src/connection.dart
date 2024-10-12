@@ -486,9 +486,10 @@ class MultiAltEndpointsConnection with Listenable implements EventHandler {
       {Duration? waitOpenTimeout, Duration? roundTimeout}) async {
     if (!this.isOpen()) {
       logger.d('Msg sent before connection is ready, waiting...');
-      await this.waitOpen(waitOpenTimeout);
+      return await this.waitOpen(waitOpenTimeout).then((value) => value.send(msg, roundTimeout));
+    } else {
+      return await this._connection!.send(msg, roundTimeout);
     }
-    return await this._connection!.send(msg, roundTimeout);
   }
 
   Future<GeneratedMessage> send(GeneratedMessage msg, [Duration? timeout]) {

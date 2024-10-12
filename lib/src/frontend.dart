@@ -187,34 +187,37 @@ class Frontend with Listenable implements EventHandler {
       this._callbacks[topic]!(offset - 1);
       return;
     }
-    this._pullTasks[topic] = CancelableOperation.fromFuture(this
-        ._pullConnection
-        .waitOpenAndSend(this._createPullReq(topic, offset), roundTimeout: 5.seconds)
-        .then((value) {
-      if (!this._isValidSubscription(topic)) {
-        return;
-      }
-      var msgs = (value as pull_rep_t).msgs;
-      if (msgs.isEmpty) {
-        logger.i('No msgs pulled: topic: ${topic}, offset: ${offset}');
-        this._newPullTimer(this._options.pullInterval, topic, offset);
-        return;
-      }
-      queue.put(msgs);
-      var lastOffset = queue.lastOffset();
-      var nextOffset = lastOffset + 1;
-      this._progressManager[topic] = nextOffset;
-      this._newPullTimer(this._options.pullInterval, topic, nextOffset);
-      this._callbacks[topic]!(lastOffset);
-    }).catchError((e, s) {
-      if (e is TimeoutException) {
-        logger.d('Timeout occured: reason: $e, stack: $s, will pull again...');
-        this._newPullTimer(0.seconds, topic, offset);
-      } else {
-        logger.e('Error occured: reason: $e, stack: $s, will pull again...');
-        this._newPullTimer(1.seconds, topic, offset);
-      }
-    }));
+    this._pullTasks[topic] = CancelableOperation.fromFuture(
+        this
+            ._pullConnection
+            .waitOpenAndSend(this._createPullReq(topic, offset), roundTimeout: 5.seconds)
+            .then((value) {
+          if (!this._isValidSubscription(topic)) {
+            return;
+          }
+          var msgs = (value as pull_rep_t).msgs;
+          if (msgs.isEmpty) {
+            logger.i('No msgs pulled: topic: ${topic}, offset: ${offset}');
+            this._newPullTimer(this._options.pullInterval, topic, offset);
+            return;
+          }
+          queue.put(msgs);
+          var lastOffset = queue.lastOffset();
+          var nextOffset = lastOffset + 1;
+          this._progressManager[topic] = nextOffset;
+          this._newPullTimer(this._options.pullInterval, topic, nextOffset);
+          this._callbacks[topic]!(lastOffset);
+        }).catchError((e, s) {
+          if (e is TimeoutException) {
+            logger.d('Timeout occured: reason: $e, stack: $s, will pull again...');
+            this._newPullTimer(this._options.pullInterval, topic, offset);
+          } else {
+            logger.e('Error occured: reason: $e, stack: $s, will pull again...');
+            this._newPullTimer(1.seconds, topic, offset);
+          }
+        }), onCancel: () {
+      logger.d("Pull task was cancelled: topic: $topic, offset: $offset");
+    });
   }
 
   void _cancelAllPullTasks() {
@@ -230,8 +233,8 @@ class Frontend with Listenable implements EventHandler {
     if (task != null) {
       task.cancel();
       this._pullTasks.remove(topic);
-      this._cancelPullTimer(topic);
     }
+    this._cancelPullTimer(topic);
   }
 
   void _newPullTimer(Duration duration, topic, offset) {

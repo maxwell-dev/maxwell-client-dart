@@ -2,7 +2,9 @@ import 'package:maxwell_client/maxwell_client.dart';
 
 final client = Client(
   ["localhost:8081"],
-  Options()..logLevel = Level.debug,
+  Options()
+    ..logLevel = Level.debug
+    ..roundDebugEnabled = true,
 );
 
 void main() {

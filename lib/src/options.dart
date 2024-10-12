@@ -5,6 +5,7 @@ class Options {
   Duration waitOpenTimeout;
   Duration reconnectDelay;
   Duration heartbeatInterval;
+  Duration unhealthyTimeout;
   Duration roundTimeout;
   Duration idleTimeout;
   int pollMinSize;
@@ -19,9 +20,10 @@ class Options {
 
   Options(
       {this.waitOpenTimeout = const Duration(milliseconds: 5000),
-      this.reconnectDelay = const Duration(milliseconds: 2000),
-      this.heartbeatInterval = const Duration(milliseconds: 5000),
-      this.roundTimeout = const Duration(milliseconds: 5000),
+      this.reconnectDelay = const Duration(milliseconds: 3000),
+      this.heartbeatInterval = const Duration(milliseconds: 10000),
+      this.roundTimeout = const Duration(milliseconds: 10000),
+      this.unhealthyTimeout = const Duration(milliseconds: 20000),
       this.idleTimeout = const Duration(milliseconds: 30000),
       this.pollMinSize = 1,
       this.pollMaxSize = 3,

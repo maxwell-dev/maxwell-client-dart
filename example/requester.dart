@@ -1,6 +1,10 @@
 import 'package:maxwell_client/maxwell_client.dart';
 
-final client = Client(["localhost:8081"], Options()..logLevel = Level.error);
+final client = Client(
+    ["localhost:8081"],
+    Options()
+      ..logLevel = Level.error
+      ..roundDebugEnabled = true);
 
 run() async {
   try {
@@ -16,15 +20,13 @@ warm() async {
   for (var i = 0; i < 3; i++) {
     await run();
   }
-  print(
-      "answer time@warm in: ${DateTime.now().difference(now).inMilliseconds}ms");
+  print("answer time@warm in: ${DateTime.now().difference(now).inMilliseconds}ms");
 }
 
 runOnce() async {
   final now = DateTime.now();
   await run();
-  print(
-      "answer time@runOnce in: ${DateTime.now().difference(now).inMicroseconds / 1000}ms");
+  print("answer time@runOnce in: ${DateTime.now().difference(now).inMicroseconds / 1000}ms");
 }
 
 void main() async {

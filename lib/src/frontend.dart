@@ -120,7 +120,10 @@ class Frontend with Listenable implements EventHandler {
   @override
   void onConnected(args) {
     this._failedToConnect = false;
-    this._renewAllPullTasks();
+    if (args.last == this._pullConnection) {
+      logger.d('Renew pull tasks...');
+      this._renewAllPullTasks();
+    }
     this.notify(Event.ON_CONNECTED, args);
   }
 
@@ -131,7 +134,10 @@ class Frontend with Listenable implements EventHandler {
 
   @override
   void onDisconnected(args) {
-    this._cancelAllPullTasks();
+    if (args.last == this._pullConnection) {
+      logger.d('Cancel all pull tasks...');
+      this._cancelAllPullTasks();
+    }
     this.notify(Event.ON_DISCONNECTED, args);
   }
 

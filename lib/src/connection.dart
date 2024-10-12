@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:async/async.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:maxwell_protocol/maxwell_protocol.dart';
@@ -77,9 +78,9 @@ class Connection with Listenable {
 
   bool _shouldRun = true;
   Timer? _reconnectTimer = null;
-  Timer? _keepAliveTimer = null;
-  late DateTime _userMsgSentAt;
-  late DateTime _sentAt;
+  Timer? _heartbeatTimer = null;
+  Timer? _checkStatusTimer = null;
+  late DateTime _sendNonePingAt;
   late DateTime _receivedAt;
   bool _isHealthy = true;
   int _lastRef = 0;
@@ -98,15 +99,15 @@ class Connection with Listenable {
         _options = options,
         _eventHandler = eventHandler {
     var now = DateTime.now();
-    this._userMsgSentAt = now;
-    this._sentAt = now;
+    this._sendNonePingAt = now;
     this._receivedAt = now;
     this._connect();
   }
 
   void close() {
     this._shouldRun = false;
-    this._stopKeepAlive();
+    this._stopRepeatHeartbeat();
+    this._stopRepeatCheckStatus();
     this._stopReconnect();
     this._disconnect();
     this._completeCompleters();
@@ -175,9 +176,8 @@ class Connection with Listenable {
   void doSend(msg) {
     var now = DateTime.now();
     if (msg is! ping_req_t) {
-      this._userMsgSentAt = now;
+      this._sendNonePingAt = now;
     }
-    this._sentAt = now;
 
     if (this._options.roundDebugEnabled) {
       logger.d('<${this._id}>Sending msg: ${msg.toProto3Json()}');
@@ -254,7 +254,8 @@ class Connection with Listenable {
     logger.i('<${this._id}>Disconnected: endpoint: ${this._endpoint}');
     try {
       this._isOpen = false;
-      this._stopKeepAlive();
+      this._stopRepeatHeartbeat();
+      this._stopRepeatCheckStatus();
       this._stopReconnect();
       this._closeChannel('Stream closed');
       tryWith(() => this._eventHandler.onDisconnected([this]));
@@ -283,7 +284,8 @@ class Connection with Listenable {
     channel.ready.then((_) {
       logger.i('<${this._id}>Connected: endpoint: ${this._endpoint}');
       this._isOpen = true;
-      this._keepAlive();
+      this._repeatHeartbeat();
+      this._repeatCheckStatus();
       tryWith(() => this._eventHandler.onConnected([this]));
       this.notify(Event.ON_CONNECTED, [this]);
     }, onError: (e) {
@@ -321,36 +323,20 @@ class Connection with Listenable {
     }
   }
 
-  void _keepAlive() {
+  void _repeatHeartbeat() {
     if (!this._shouldRun) {
       return;
     }
-    logger.d('<${this._id}>keep alive...');
-    var duration = this._calcDurationUntilNextHeartbeat();
-    if (duration <= Duration(seconds: 1)) {
+    this._stopRepeatHeartbeat();
+    this._heartbeatTimer = Timer.periodic(this._options.heartbeatInterval, (timer) {
       this._sendHeartbeat();
-      this._checkHealthy();
-      this._checkIdleTimeout();
-      duration = this._options.heartbeatInterval;
-    }
-    this._stopKeepAlive();
-    this._keepAliveTimer = Timer(duration, this._keepAlive);
+    });
   }
 
-  void _stopKeepAlive() {
-    if (this._keepAliveTimer != null) {
-      this._keepAliveTimer!.cancel();
-      this._keepAliveTimer = null;
-    }
-  }
-
-  Duration _calcDurationUntilNextHeartbeat() {
-    var next = this._sentAt.add(this._options.heartbeatInterval);
-    var now = DateTime.now();
-    if (next.compareTo(now) <= 0) {
-      return Duration.zero;
-    } else {
-      return next.difference(now);
+  void _stopRepeatHeartbeat() {
+    if (this._heartbeatTimer != null) {
+      this._heartbeatTimer!.cancel();
+      this._heartbeatTimer = null;
     }
   }
 
@@ -362,8 +348,27 @@ class Connection with Listenable {
     }
   }
 
-  void _checkHealthy() {
-    if (this._hasReceivedHeartbeat()) {
+  void _repeatCheckStatus() {
+    if (!this._shouldRun) {
+      return;
+    }
+    this._stopRepeatCheckStatus();
+    this._checkStatusTimer = Timer.periodic(this._calcIntervalForCheckStatus(), (timer) {
+      var now = DateTime.now();
+      this._checkUnhealthyTimeout(now);
+      this._checkIdleTimeout(now);
+    });
+  }
+
+  void _stopRepeatCheckStatus() {
+    if (this._checkStatusTimer != null) {
+      this._checkStatusTimer!.cancel();
+      this._checkStatusTimer = null;
+    }
+  }
+
+  void _checkUnhealthyTimeout(DateTime now) {
+    if (this._hasReceivedBeforeUnhealthyTimeout(now)) {
       this._isHealthy = true;
     } else {
       this._isHealthy = false;
@@ -371,18 +376,27 @@ class Connection with Listenable {
     }
   }
 
-  bool _hasReceivedHeartbeat() {
-    var prev = DateTime.now().subtract(this._options.heartbeatInterval * 1.5);
-    return this._receivedAt.compareTo(prev) >= 0;
-  }
-
-  void _checkIdleTimeout() {
-    var now = DateTime.now();
-    if (now.difference(this._userMsgSentAt) >= this._options.idleTimeout) {
+  void _checkIdleTimeout(DateTime now) {
+    if (!this._hasSentNonePingBeforeIdleTimeout(now)) {
       logger.i('<${this._id}>Idle timeout: endpoint: ${this._endpoint}');
       tryWith(() => this._eventHandler.onError([ErrorCode.IDLE_TIMEOUT, 'Idle timeout', this]));
       this.notify(Event.ON_ERROR, [ErrorCode.IDLE_TIMEOUT, 'Idle timeout', this]);
     }
+  }
+
+  bool _hasReceivedBeforeUnhealthyTimeout(DateTime now) {
+    return now.difference(this._receivedAt) < this._options.unhealthyTimeout;
+  }
+
+  bool _hasSentNonePingBeforeIdleTimeout(DateTime now) {
+    return now.difference(this._sendNonePingAt) < this._options.idleTimeout;
+  }
+
+  Duration _calcIntervalForCheckStatus() {
+    var interval = (min(this._options.unhealthyTimeout.inMilliseconds,
+            this._options.idleTimeout.inMilliseconds) ~/
+        2);
+    return Duration(milliseconds: interval);
   }
 
   void _closeChannel(String? reason) {

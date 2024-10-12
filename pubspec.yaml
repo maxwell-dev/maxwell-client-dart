@@ -1,5 +1,5 @@
 name: maxwell_client
-version: 0.10.2
+version: 0.10.3
 description: A maxwell client for dart.
 repository: https://github.com/maxwell-dev/maxwell-client-dart.git
 
